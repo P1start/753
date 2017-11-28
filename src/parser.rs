@@ -1,3 +1,5 @@
+use std::fmt;
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum Token {
     /// `(`
@@ -8,10 +10,30 @@ pub enum Token {
     LSqrBr,
     /// `]`
     RSqrBr,
+    /// `defn`
+    Defn,
+    /// `let`
+    Let,
     /// An integer (e.g., `-137`)
     Integer(i64), // TODO is it right to use i64 here?
     /// An identifier (e.g., `foo`)
     Ident(String),
+}
+
+impl fmt::Display for Token {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Token::LParen => f.write_str("("),
+            Token::RParen => f.write_str(")"),
+            Token::LSqrBr => f.write_str("["),
+            Token::RSqrBr => f.write_str("]"),
+            Token::Defn => f.write_str("defn"),
+            Token::Let => f.write_str("let"),
+            Token::Integer(i) => write!(f, "{}", i),
+            Token::Ident(ref s) => write!(f, "{}", s),
+            _ => panic!(),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -20,17 +42,25 @@ pub enum Expr {
     Call(String, Vec<Expr>),
     /// An array expression: something like `[foo bar baz qux]`
     Array(Vec<Expr>),
+    /// A function definition: something like `(defn foo bar)`.
+    Definition(String, Box<Expr>),
     /// An integer literal
     Integer(i64),
     /// An identifer
     Ident(String),
+    // TODO add `let` expression
+}
+
+#[derive(Debug)]
+pub struct Ast {
+    pub declarations: Vec<Expr>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ParseError {
     EndOfFile,
     UnknownChar(char),
-    UnexpectedToken(Token),
+    ExpectedFoundToken(String, Token),
 }
 
 /// The tokenizer: the part of the parsing pipeline that breaks up source code into `Token`s.
@@ -38,6 +68,13 @@ pub enum ParseError {
 pub struct Tokenizer<'src> {
     /// The contents of a single source file.
     src: &'src str,
+}
+
+pub fn is_keyword(s: &str) -> bool {
+    match s {
+        "defn" | "let" => true,
+        _ => false,
+    }
 }
 
 impl<'src> Tokenizer<'src> {
@@ -93,8 +130,13 @@ impl<'src> Tokenizer<'src> {
                     }
                 }
                 match string.parse() {
-                    Ok(value) => Token::Integer(value),
-                    Err(_) => Token::Ident(string),
+                    Ok(value) => return Ok(Token::Integer(value)),
+                    Err(_) => {},
+                }
+                match &*string {
+                    "defn" => Token::Defn,
+                    "let" => Token::Let,
+                    _ => Token::Ident(string),
                 }
             },
             c => return Err(ParseError::UnknownChar(c)),
@@ -123,13 +165,35 @@ impl<'src> Parser<'src> {
         }
     }
 
+    fn parse_ident(&mut self) -> Result<String, ParseError> {
+        match self.tokenizer.eat_token()? {
+            Token::Ident(s) => Ok(s),
+            tok => Err(ParseError::ExpectedFoundToken("identifier".to_string(), tok)),
+        }
+    }
+
+    fn expect_token(&mut self, token: Token) -> Result<(), ParseError> {
+        let actual = self.tokenizer.eat_token()?;
+        if actual == token {
+            Ok(())
+        } else {
+            Err(ParseError::ExpectedFoundToken(format!("`{}`", token), actual))
+        }
+    }
+
     pub fn parse_expr(&mut self) -> Result<Expr, ParseError> {
         let token = self.tokenizer.eat_token()?;
         Ok(match token {
             Token::LParen => {
                 let name = match self.tokenizer.eat_token()? {
                     Token::Ident(s) => s,
-                    tok => return Err(ParseError::UnexpectedToken(tok)),
+                    Token::Defn => {
+                        let defn_name = self.parse_ident()?;
+                        let body = self.parse_expr()?;
+                        self.expect_token(Token::RParen)?;
+                        return Ok(Expr::Definition(defn_name, Box::new(body)))
+                    },
+                    tok => return Err(ParseError::ExpectedFoundToken("identifier or keyword".to_string(), tok)),
                 };
                 let mut exprs = vec![];
                 loop {
@@ -164,7 +228,7 @@ impl<'src> Parser<'src> {
             },
             Token::Integer(i) => Expr::Integer(i),
             Token::Ident(s) => Expr::Ident(s),
-            token => return Err(ParseError::UnexpectedToken(token)),
+            token => return Err(ParseError::ExpectedFoundToken("expression".to_string(), token)),
         })
     }
 }
@@ -225,6 +289,18 @@ mod test {
                 ),
                 Expr::Ident("qux".to_string()),
             ],
+        ));
+        let actual_expr = parser.parse_expr();
+        assert_eq!(actual_expr, expected_expr);
+    }
+
+    #[test]
+    fn test_definition() {
+        let src = "(defn foo bar)";
+        let mut parser = Parser::from_source(src);
+        let expected_expr = Ok(Expr::Definition(
+            "foo".to_string(),
+            Box::new(Expr::Ident("bar".to_string())),
         ));
         let actual_expr = parser.parse_expr();
         assert_eq!(actual_expr, expected_expr);
