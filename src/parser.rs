@@ -175,11 +175,11 @@ mod test {
 
     #[test]
     fn test_tokenizer() {
-        let src1 = "(foo 1\n\t[2 3a])";
-        let mut tok1 = Tokenizer::from_source(src1);
+        let src = "(foo 1\n\t[2 3a])";
+        let mut tok = Tokenizer::from_source(src);
         let mut i = 0;
         loop {
-            match (i, tok1.eat_token()) {
+            match (i, tok.eat_token()) {
                 (0, Ok(Token::LParen)) => {},
                 (1, Ok(Token::Ident(ref s))) if s == "foo" => {},
                 (2, Ok(Token::Integer(1))) => {},
@@ -196,9 +196,9 @@ mod test {
     }
 
     #[test]
-    fn test_parser() {
-        let src1 = "[foo [1 baz]]";
-        let mut parser = Parser::from_source(src1);
+    fn test_parser_arrays() {
+        let src = "[foo [1 baz]]";
+        let mut parser = Parser::from_source(src);
         let expected_expr = Ok(Expr::Array(vec![
             Expr::Ident("foo".to_string()),
             Expr::Array(vec![
@@ -208,9 +208,12 @@ mod test {
         ]));
         let actual_expr = parser.parse_expr();
         assert_eq!(actual_expr, expected_expr);
+    }
 
-        let src2 = "(foo (bar baz)qux)";
-        let mut parser = Parser::from_source(src2);
+    #[test]
+    fn test_parser_calls() {
+        let src = "(foo (bar baz)qux)";
+        let mut parser = Parser::from_source(src);
         let expected_expr = Ok(Expr::Call(
             "foo".to_string(),
             vec![
