@@ -38,10 +38,10 @@ impl fmt::Display for Token {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Expr {
-    /// A call: something like `(foo bar baz)`.
-    Call(Vec<Expr>),
-    /// An array expression: something like `[foo bar baz qux]`
-    Array(Vec<Expr>),
+    /// An s-expression: something like `(foo bar baz)`.
+    SExpr(Vec<Expr>),
+    /// A square-bracketed s-expression: something like `[foo bar baz qux]`
+    SqExpr(Vec<Expr>),
     /// A function definition: something like `(defun foo bar)`.
     Definition(String, Box<Expr>),
     /// An integer literal
@@ -208,7 +208,7 @@ impl<'src> Parser<'src> {
                         }
                     }
                 }
-                Expr::Call(exprs)
+                Expr::SExpr(exprs)
             },
             Token::LSqrBr => {
                 let mut exprs = vec![];
@@ -224,7 +224,7 @@ impl<'src> Parser<'src> {
                         },
                     }
                 }
-                Expr::Array(exprs)
+                Expr::SqExpr(exprs)
             },
             Token::Integer(i) => Expr::Integer(i),
             Token::Ident(s) => Expr::Ident(s),
@@ -260,12 +260,12 @@ mod test {
     }
 
     #[test]
-    fn test_parser_arrays() {
+    fn test_parser_sqexprs() {
         let src = "[foo [1 baz]]";
         let mut parser = Parser::from_source(src);
-        let expected_expr = Ok(Expr::Array(vec![
+        let expected_expr = Ok(Expr::SqExpr(vec![
             Expr::Ident("foo".to_string()),
-            Expr::Array(vec![
+            Expr::SqExpr(vec![
                 Expr::Integer(1),
                 Expr::Ident("baz".to_string()),
             ]),
@@ -275,13 +275,13 @@ mod test {
     }
 
     #[test]
-    fn test_parser_calls() {
+    fn test_parser_sexprs() {
         let src = "(foo (bar baz)qux)";
         let mut parser = Parser::from_source(src);
-        let expected_expr = Ok(Expr::Call(
+        let expected_expr = Ok(Expr::SExpr(
             vec![
                 Expr::Ident("foo".to_string()),
-                Expr::Call(
+                Expr::SExpr(
                     vec![
                         Expr::Ident("bar".to_string()),
                         Expr::Ident("baz".to_string()),
