@@ -107,7 +107,7 @@ impl<'src> Tokenizer<'src> {
         }
     }
 
-    pub fn eat_token(&mut self) -> Result<Token, ParseError> {
+    pub fn parse_token(&mut self) -> Result<Token, ParseError> {
         // Skip whitespace
         loop {
             match self.peek_char() {
@@ -150,7 +150,7 @@ impl<'src> Tokenizer<'src> {
 
     pub fn peek_token(&mut self) -> Result<Token, ParseError> {
         let old_src = self.src;
-        let res = self.eat_token();
+        let res = self.parse_token();
         self.src = old_src;
         res
     }
@@ -171,14 +171,14 @@ impl<'src> Parser<'src> {
     }
 
     fn parse_ident(&mut self) -> Result<String, ParseError> {
-        match self.tokenizer.eat_token()? {
+        match self.tokenizer.parse_token()? {
             Token::Ident(s) => Ok(s),
             tok => Err(ParseError::ExpectedFoundToken("identifier".to_string(), tok)),
         }
     }
 
     fn expect_token(&mut self, token: Token) -> Result<(), ParseError> {
-        let actual = self.tokenizer.eat_token()?;
+        let actual = self.tokenizer.parse_token()?;
         if actual == token {
             Ok(())
         } else {
@@ -190,7 +190,7 @@ impl<'src> Parser<'src> {
         self.expect_token(Token::LParen)?;
         Ok(match self.tokenizer.peek_token()? {
             Token::Defun => {
-                self.tokenizer.eat_token()?;
+                self.tokenizer.parse_token()?;
                 let defun_name = self.parse_ident()?;
                 let body = self.parse_expr()?;
                 self.expect_token(Token::RParen)?;
@@ -201,7 +201,7 @@ impl<'src> Parser<'src> {
     }
 
     pub fn parse_expr(&mut self) -> Result<Expr, ParseError> {
-        let token = self.tokenizer.eat_token()?;
+        let token = self.tokenizer.parse_token()?;
         Ok(match token {
             Token::LParen => {
                 let mut exprs = vec![];
@@ -209,7 +209,7 @@ impl<'src> Parser<'src> {
                     let next_token = self.tokenizer.peek_token()?;
                     match next_token {
                         Token::RParen => {
-                            self.tokenizer.eat_token()?;
+                            self.tokenizer.parse_token()?;
                             break
                         },
                         _ => {
@@ -225,7 +225,7 @@ impl<'src> Parser<'src> {
                     let next_token = self.tokenizer.peek_token()?;
                     match next_token {
                         Token::RSqrBr => {
-                            self.tokenizer.eat_token()?;
+                            self.tokenizer.parse_token()?;
                             break
                         },
                         _ => {
@@ -252,7 +252,7 @@ mod test {
         let mut tok = Tokenizer::from_source(src);
         let mut i = 0;
         loop {
-            match (i, tok.eat_token()) {
+            match (i, tok.parse_token()) {
                 (0, Ok(Token::LParen)) => {},
                 (1, Ok(Token::Ident(ref s))) if s == "foo" => {},
                 (2, Ok(Token::Integer(1))) => {},
