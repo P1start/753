@@ -20,6 +20,16 @@ pub enum Token {
     Ident(String),
 }
 
+impl Token {
+    fn matching_bracket(&self) -> Option<Token> {
+        match *self {
+            Token::LParen => Some(Token::RParen),
+            Token::LSqrBr => Some(Token::RSqrBr),
+            _ => None,
+        }
+    }
+}
+
 impl fmt::Display for Token {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
@@ -47,8 +57,6 @@ pub enum Item {
 pub enum Expr {
     /// An s-expression: something like `(foo bar baz)`.
     SExpr(Vec<Expr>),
-    /// A square-bracketed s-expression: something like `[foo bar baz qux]`
-    SqExpr(Vec<Expr>),
     /// An integer literal
     Integer(i64),
     /// An identifer
@@ -178,9 +186,9 @@ impl<'src> Parser<'src> {
         }
     }
 
-    fn expect_token(&mut self, token: Token) -> Result<(), ParseError> {
+    fn expect_token(&mut self, token: &Token) -> Result<(), ParseError> {
         let actual = self.tokenizer.parse_token()?;
-        if actual == token {
+        if actual == *token {
             Ok(())
         } else {
             Err(ParseError::ExpectedFoundToken(format!("`{}`", token), actual))
@@ -188,31 +196,41 @@ impl<'src> Parser<'src> {
     }
 
     pub fn parse_item(&mut self) -> Result<Item, ParseError> {
-        self.expect_token(Token::LParen)?;
+        self.expect_token(&Token::LParen)?;
         Ok(match self.tokenizer.peek_token()? {
             Token::Defun => {
                 self.tokenizer.parse_token()?;
                 let defun_name = self.parse_ident()?;
                 let body = self.parse_expr()?;
-                self.expect_token(Token::RParen)?;
+                self.expect_token(&Token::RParen)?;
                 Item::Function(defun_name, body)
             },
             tok => return Err(ParseError::ExpectedFoundToken("function declaration".to_string(), tok)),
         })
     }
 
+    fn parse_bracket(&mut self) -> Result<Token, ParseError> {
+        match self.tokenizer.parse_token()? {
+            tok @ Token::LParen | tok @ Token::LSqrBr => {
+                Ok(tok.matching_bracket().unwrap())
+            },
+            tok => Err(ParseError::ExpectedFoundToken("`(` or `[`".to_string(), tok)),
+        }
+    }
+
     pub fn parse_expr(&mut self) -> Result<Expr, ParseError> {
         let token = self.tokenizer.parse_token()?;
         Ok(match token {
-            Token::LParen => {
+            Token::LParen | Token::LSqrBr => {
+                let matching_bracket = token.matching_bracket().unwrap();
                 match self.tokenizer.peek_token()? {
                     Token::Let => {
                         self.tokenizer.parse_token()?;
-                        self.expect_token(Token::LSqrBr)?;
+                        let matching_bracket_inner = self.parse_bracket()?;
                         // TODO: support more than one name-value assignment
                         let name = self.parse_ident()?;
                         let value = self.parse_expr()?;
-                        self.expect_token(Token::RSqrBr)?;
+                        self.expect_token(&matching_bracket_inner)?;
                         let rest = self.parse_expr()?;
                         return Ok(Expr::Let(name, Box::new(value), Box::new(rest)))
                     },
@@ -222,7 +240,7 @@ impl<'src> Parser<'src> {
                 loop {
                     let next_token = self.tokenizer.peek_token()?;
                     match next_token {
-                        Token::RParen => {
+                        _ if next_token == matching_bracket => {
                             self.tokenizer.parse_token()?;
                             break
                         },
@@ -232,22 +250,6 @@ impl<'src> Parser<'src> {
                     }
                 }
                 Expr::SExpr(exprs)
-            },
-            Token::LSqrBr => {
-                let mut exprs = vec![];
-                loop {
-                    let next_token = self.tokenizer.peek_token()?;
-                    match next_token {
-                        Token::RSqrBr => {
-                            self.tokenizer.parse_token()?;
-                            break
-                        },
-                        _ => {
-                            exprs.push(self.parse_expr()?);
-                        },
-                    }
-                }
-                Expr::SqExpr(exprs)
             },
             Token::Integer(i) => Expr::Integer(i),
             Token::Ident(s) => Expr::Ident(s),
@@ -283,12 +285,12 @@ mod test {
     }
 
     #[test]
-    fn test_parser_sqexprs() {
+    fn test_parser_matching_square_brackets() {
         let src = "[foo [1 baz]]";
         let mut parser = Parser::from_source(src);
-        let expected = Ok(Expr::SqExpr(vec![
+        let expected = Ok(Expr::SExpr(vec![
             Expr::Ident("foo".to_string()),
-            Expr::SqExpr(vec![
+            Expr::SExpr(vec![
                 Expr::Integer(1),
                 Expr::Ident("baz".to_string()),
             ]),
@@ -298,7 +300,7 @@ mod test {
     }
 
     #[test]
-    fn test_parser_sexprs() {
+    fn test_parser_matching_parentheses() {
         let src = "(foo (bar baz)qux)";
         let mut parser = Parser::from_source(src);
         let expected = Ok(Expr::SExpr(
@@ -313,7 +315,25 @@ mod test {
                 Expr::Ident("qux".to_string()),
             ],
         ));
-        let actual= parser.parse_expr();
+        let actual = parser.parse_expr();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_unmatched_brackets1() {
+        let src = "(foo bar]";
+        let mut parser = Parser::from_source(src);
+        let expected = Err(ParseError::ExpectedFoundToken("expression".to_string(), Token::RSqrBr));
+        let actual = parser.parse_expr();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_unmatched_brackets2() {
+        let src = "[baz qux)";
+        let mut parser = Parser::from_source(src);
+        let expected = Err(ParseError::ExpectedFoundToken("expression".to_string(), Token::RParen));
+        let actual = parser.parse_expr();
         assert_eq!(actual, expected);
     }
 

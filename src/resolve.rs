@@ -52,11 +52,6 @@ impl<'ast> Resolver<'ast> {
                     self.build_lookup_table_for_expr(expr);
                 }
             },
-            Expr::SqExpr(ref exprs) => {
-                for expr in exprs {
-                    self.build_lookup_table_for_expr(expr);
-                }
-            },
             Expr::Integer(_) => {},
             Expr::Ident(ref name) => {
                 if let Some(&id) = self.locals.get(&**name) {
@@ -127,7 +122,6 @@ mod test {
                 },
                 _ => panic!(),
             },
-            _ => panic!(),
         };
         let resolution = resolve_names_in_item(&item);
         let mut expected_dangling_refs = HashSet::new();
