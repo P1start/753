@@ -10,8 +10,8 @@ pub enum Token {
     LSqrBr,
     /// `]`
     RSqrBr,
-    /// `defn`
-    Defn,
+    /// `defun`
+    Defun,
     /// `let`
     Let,
     /// An integer (e.g., `-137`)
@@ -27,7 +27,7 @@ impl fmt::Display for Token {
             Token::RParen => f.write_str(")"),
             Token::LSqrBr => f.write_str("["),
             Token::RSqrBr => f.write_str("]"),
-            Token::Defn => f.write_str("defn"),
+            Token::Defun => f.write_str("defun"),
             Token::Let => f.write_str("let"),
             Token::Integer(i) => write!(f, "{}", i),
             Token::Ident(ref s) => write!(f, "{}", s),
@@ -42,7 +42,7 @@ pub enum Expr {
     Call(String, Vec<Expr>),
     /// An array expression: something like `[foo bar baz qux]`
     Array(Vec<Expr>),
-    /// A function definition: something like `(defn foo bar)`.
+    /// A function definition: something like `(defun foo bar)`.
     Definition(String, Box<Expr>),
     /// An integer literal
     Integer(i64),
@@ -72,7 +72,7 @@ pub struct Tokenizer<'src> {
 
 pub fn is_keyword(s: &str) -> bool {
     match s {
-        "defn" | "let" => true,
+        "defun" | "let" => true,
         _ => false,
     }
 }
@@ -134,7 +134,7 @@ impl<'src> Tokenizer<'src> {
                     Err(_) => {},
                 }
                 match &*string {
-                    "defn" => Token::Defn,
+                    "defun" => Token::Defun,
                     "let" => Token::Let,
                     _ => Token::Ident(string),
                 }
@@ -187,11 +187,11 @@ impl<'src> Parser<'src> {
             Token::LParen => {
                 let name = match self.tokenizer.eat_token()? {
                     Token::Ident(s) => s,
-                    Token::Defn => {
-                        let defn_name = self.parse_ident()?;
+                    Token::Defun => {
+                        let defun_name = self.parse_ident()?;
                         let body = self.parse_expr()?;
                         self.expect_token(Token::RParen)?;
-                        return Ok(Expr::Definition(defn_name, Box::new(body)))
+                        return Ok(Expr::Definition(defun_name, Box::new(body)))
                     },
                     tok => return Err(ParseError::ExpectedFoundToken("identifier or keyword".to_string(), tok)),
                 };
@@ -296,7 +296,7 @@ mod test {
 
     #[test]
     fn test_definition() {
-        let src = "(defn foo bar)";
+        let src = "(defun foo bar)";
         let mut parser = Parser::from_source(src);
         let expected_expr = Ok(Expr::Definition(
             "foo".to_string(),
