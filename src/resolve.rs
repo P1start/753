@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use parser::{Item, Expr};
+use parser::{Item, ItemKind, Expr, ExprKind};
 
 /// An identifier for a local binding within a function.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -38,29 +38,29 @@ impl<'ast> Resolver<'ast> {
     }
 
     fn build_lookup_table(&mut self) {
-        match *self.item {
-            Item::Function(_, ref body) => {
+        match self.item.kind {
+            ItemKind::Function(_, ref body) => {
                 self.build_lookup_table_for_expr(body)
             },
         }
     }
 
     fn build_lookup_table_for_expr(&mut self, expr: &'ast Expr) {
-        match *expr {
-            Expr::SExpr(ref exprs) => {
+        match expr.kind {
+            ExprKind::SExpr(ref exprs) => {
                 for expr in exprs {
                     self.build_lookup_table_for_expr(expr);
                 }
             },
-            Expr::Integer(_) => {},
-            Expr::Ident(ref name) => {
+            ExprKind::Integer(_) => {},
+            ExprKind::Ident(ref name) => {
                 if let Some(&id) = self.locals.get(&**name) {
                     self.lookup.insert(&**name, id);
                 } else {
                     self.dangling_refs.insert(&**name);
                 }
             },
-            Expr::Let(ref name, ref value, ref rest) => {
+            ExprKind::Let(ref name, ref value, ref rest) => {
                 self.build_lookup_table_for_expr(value);
 
                 let id = self.generate_new_resolve_id();
@@ -82,12 +82,12 @@ impl<'ast> Resolver<'ast> {
 /// dangling references (probably referring to globals).
 #[derive(Debug)]
 pub struct Resolution<'ast> {
-    /// The lookup table that maps strings from the `Item` to resolve IDs.
+    /// The lookup table that maps strings from the `ItemKind` to resolve IDs.
     /// 
     /// Lookup is done based on memory address; think of the `*const str` as being an arbitrary
-    /// unique ID assigned to every identifier in the `Item`.
+    /// unique ID assigned to every identifier in the `ItemKind`.
     pub lookup: HashMap<*const str, ResolveId>,
-    /// All the bindings within the `Item` that don't reference a local variable. This is either
+    /// All the bindings within the `ItemKind` that don't reference a local variable. This is either
     /// because they reference global variables (which will be resolved later) or they reference
     /// an undefined identifier (in which case the program is invalid).
     pub dangling_refs: HashSet<&'ast str>,
@@ -103,19 +103,20 @@ pub fn resolve_names_in_item(item: &Item) -> Resolution {
 
 #[cfg(test)]
 mod test {
+    #![allow(unused_variables, unreachable_patterns)]
     use super::*;
-    use parser::{Parser, Item, Expr};
+    use parser::{Parser, ItemKind, ExprKind};
 
     #[test]
     fn test_basic_name_resolution() {
         let src = "(defun foo (let [a 1] (a b)))";
         let mut parser = Parser::from_source(src);
         let item = parser.parse_item().unwrap();
-        let (a1, a2) = match item {
-            Item::Function(_, ref expr) => match *expr {
-                Expr::Let(ref a1, _, ref expr) => match **expr {
-                    Expr::SExpr(ref exprs) => match exprs[0] {
-                        Expr::Ident(ref a2) => (&**a1 as *const _, &**a2 as *const _),
+        let (a1, a2) = match item.kind {
+            ItemKind::Function(_, ref expr) => match expr.kind {
+                ExprKind::Let(ref a1, _, ref expr) => match expr.kind {
+                    ExprKind::SExpr(ref exprs) => match exprs[0].kind {
+                        ExprKind::Ident(ref a2) => (&**a1 as *const _, &**a2 as *const _),
                         _ => panic!(),
                     },
                     _ => panic!(),
