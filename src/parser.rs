@@ -35,14 +35,20 @@ impl fmt::Display for Token {
     }
 }
 
+/// A top-level item. These visually look like expressions but are treated differently and
+/// so warrant their own type.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Item {
+    /// A function definition: something like `(defun foo bar)`.
+    Function(String, Box<Expr>),
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum Expr {
     /// An s-expression: something like `(foo bar baz)`.
     SExpr(Vec<Expr>),
     /// A square-bracketed s-expression: something like `[foo bar baz qux]`
     SqExpr(Vec<Expr>),
-    /// A function definition: something like `(defun foo bar)`.
-    Definition(String, Box<Expr>),
     /// An integer literal
     Integer(i64),
     /// An identifer
@@ -180,20 +186,24 @@ impl<'src> Parser<'src> {
         }
     }
 
+    pub fn parse_item(&mut self) -> Result<Item, ParseError> {
+        self.expect_token(Token::LParen)?;
+        Ok(match self.tokenizer.peek_token()? {
+            Token::Defun => {
+                self.tokenizer.eat_token()?;
+                let defun_name = self.parse_ident()?;
+                let body = self.parse_expr()?;
+                self.expect_token(Token::RParen)?;
+                Item::Function(defun_name, Box::new(body))
+            },
+            tok => return Err(ParseError::ExpectedFoundToken("function declaration".to_string(), tok)),
+        })
+    }
+
     pub fn parse_expr(&mut self) -> Result<Expr, ParseError> {
         let token = self.tokenizer.eat_token()?;
         Ok(match token {
             Token::LParen => {
-                match self.tokenizer.peek_token()? {
-                    Token::Defun => {
-                        self.tokenizer.eat_token()?;
-                        let defun_name = self.parse_ident()?;
-                        let body = self.parse_expr()?;
-                        self.expect_token(Token::RParen)?;
-                        return Ok(Expr::Definition(defun_name, Box::new(body)))
-                    },
-                    _ => {},
-                }
                 let mut exprs = vec![];
                 loop {
                     let next_token = self.tokenizer.peek_token()?;
@@ -297,11 +307,11 @@ mod test {
     fn test_definition() {
         let src = "(defun foo bar)";
         let mut parser = Parser::from_source(src);
-        let expected_expr = Ok(Expr::Definition(
+        let expected= Ok(Item::Function(
             "foo".to_string(),
             Box::new(Expr::Ident("bar".to_string())),
         ));
-        let actual_expr = parser.parse_expr();
-        assert_eq!(actual_expr, expected_expr);
+        let actual= parser.parse_item();
+        assert_eq!(actual, expected);
     }
 }
