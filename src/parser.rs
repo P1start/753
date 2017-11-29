@@ -196,13 +196,13 @@ impl<'src> Parser<'src> {
     }
 
     pub fn parse_item(&mut self) -> Result<Item, ParseError> {
-        self.expect_token(&Token::LParen)?;
+        let matching_bracket = self.parse_bracket()?;
         Ok(match self.tokenizer.peek_token()? {
             Token::Defun => {
                 self.tokenizer.parse_token()?;
                 let defun_name = self.parse_ident()?;
                 let body = self.parse_expr()?;
-                self.expect_token(&Token::RParen)?;
+                self.expect_token(&matching_bracket)?;
                 Item::Function(defun_name, body)
             },
             tok => return Err(ParseError::ExpectedFoundToken("function declaration".to_string(), tok)),
@@ -334,6 +334,15 @@ mod test {
         let mut parser = Parser::from_source(src);
         let expected = Err(ParseError::ExpectedFoundToken("expression".to_string(), Token::RParen));
         let actual = parser.parse_expr();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_unmatched_brackets3() {
+        let src = "(defun foo bar]";
+        let mut parser = Parser::from_source(src);
+        let expected = Err(ParseError::ExpectedFoundToken("`)`".to_string(), Token::RSqrBr));
+        let actual = parser.parse_item();
         assert_eq!(actual, expected);
     }
 
