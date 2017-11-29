@@ -53,7 +53,8 @@ pub enum Expr {
     Integer(i64),
     /// An identifer
     Ident(String),
-    // TODO add `let` expression
+    /// A `let` expression: something like `(let [x 1] expr)`
+    Let(String, Box<Expr>, Box<Expr>),
 }
 
 #[derive(Debug)]
@@ -204,6 +205,19 @@ impl<'src> Parser<'src> {
         let token = self.tokenizer.parse_token()?;
         Ok(match token {
             Token::LParen => {
+                match self.tokenizer.peek_token()? {
+                    Token::Let => {
+                        self.tokenizer.parse_token()?;
+                        self.expect_token(Token::LSqrBr)?;
+                        // TODO: support more than one name-value assignment
+                        let name = self.parse_ident()?;
+                        let value = self.parse_expr()?;
+                        self.expect_token(Token::RSqrBr)?;
+                        let rest = self.parse_expr()?;
+                        return Ok(Expr::Let(name, Box::new(value), Box::new(rest)))
+                    },
+                    _ => {},
+                }
                 let mut exprs = vec![];
                 loop {
                     let next_token = self.tokenizer.peek_token()?;
@@ -307,11 +321,28 @@ mod test {
     fn test_definition() {
         let src = "(defun foo bar)";
         let mut parser = Parser::from_source(src);
-        let expected= Ok(Item::Function(
+        let expected = Ok(Item::Function(
             "foo".to_string(),
             Box::new(Expr::Ident("bar".to_string())),
         ));
         let actual = parser.parse_item();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_let() {
+        let src = "(let [foo (add 1 1)] bar)";
+        let mut parser = Parser::from_source(src);
+        let expected = Ok(Expr::Let(
+            "foo".to_string(),
+            Box::new(Expr::SExpr(vec![
+                Expr::Ident("add".to_string()),
+                Expr::Integer(1),
+                Expr::Integer(1),
+            ])),
+            Box::new(Expr::Ident("bar".to_string())),
+        ));
+        let actual = parser.parse_expr();
         assert_eq!(actual, expected);
     }
 }
