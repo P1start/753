@@ -31,7 +31,6 @@ impl fmt::Display for Token {
             Token::Let => f.write_str("let"),
             Token::Integer(i) => write!(f, "{}", i),
             Token::Ident(ref s) => write!(f, "{}", s),
-            _ => panic!(),
         }
     }
 }
