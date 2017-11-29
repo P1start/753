@@ -272,22 +272,22 @@ mod test {
     fn test_parser_sqexprs() {
         let src = "[foo [1 baz]]";
         let mut parser = Parser::from_source(src);
-        let expected_expr = Ok(Expr::SqExpr(vec![
+        let expected = Ok(Expr::SqExpr(vec![
             Expr::Ident("foo".to_string()),
             Expr::SqExpr(vec![
                 Expr::Integer(1),
                 Expr::Ident("baz".to_string()),
             ]),
         ]));
-        let actual_expr = parser.parse_expr();
-        assert_eq!(actual_expr, expected_expr);
+        let actual = parser.parse_expr();
+        assert_eq!(actual, expected);
     }
 
     #[test]
     fn test_parser_sexprs() {
         let src = "(foo (bar baz)qux)";
         let mut parser = Parser::from_source(src);
-        let expected_expr = Ok(Expr::SExpr(
+        let expected = Ok(Expr::SExpr(
             vec![
                 Expr::Ident("foo".to_string()),
                 Expr::SExpr(
@@ -299,8 +299,8 @@ mod test {
                 Expr::Ident("qux".to_string()),
             ],
         ));
-        let actual_expr = parser.parse_expr();
-        assert_eq!(actual_expr, expected_expr);
+        let actual= parser.parse_expr();
+        assert_eq!(actual, expected);
     }
 
     #[test]
@@ -311,7 +311,7 @@ mod test {
             "foo".to_string(),
             Box::new(Expr::Ident("bar".to_string())),
         ));
-        let actual= parser.parse_item();
+        let actual = parser.parse_item();
         assert_eq!(actual, expected);
     }
 }
