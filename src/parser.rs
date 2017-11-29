@@ -39,7 +39,7 @@ impl fmt::Display for Token {
 #[derive(Debug, PartialEq, Eq)]
 pub enum Expr {
     /// A call: something like `(foo bar baz)`.
-    Call(String, Vec<Expr>),
+    Call(Vec<Expr>),
     /// An array expression: something like `[foo bar baz qux]`
     Array(Vec<Expr>),
     /// A function definition: something like `(defun foo bar)`.
@@ -185,16 +185,16 @@ impl<'src> Parser<'src> {
         let token = self.tokenizer.eat_token()?;
         Ok(match token {
             Token::LParen => {
-                let name = match self.tokenizer.eat_token()? {
-                    Token::Ident(s) => s,
+                match self.tokenizer.peek_token()? {
                     Token::Defun => {
+                        self.tokenizer.eat_token()?;
                         let defun_name = self.parse_ident()?;
                         let body = self.parse_expr()?;
                         self.expect_token(Token::RParen)?;
                         return Ok(Expr::Definition(defun_name, Box::new(body)))
                     },
-                    tok => return Err(ParseError::ExpectedFoundToken("identifier or keyword".to_string(), tok)),
-                };
+                    _ => {},
+                }
                 let mut exprs = vec![];
                 loop {
                     let next_token = self.tokenizer.peek_token()?;
@@ -208,7 +208,7 @@ impl<'src> Parser<'src> {
                         }
                     }
                 }
-                Expr::Call(name, exprs)
+                Expr::Call(exprs)
             },
             Token::LSqrBr => {
                 let mut exprs = vec![];
@@ -279,12 +279,12 @@ mod test {
         let src = "(foo (bar baz)qux)";
         let mut parser = Parser::from_source(src);
         let expected_expr = Ok(Expr::Call(
-            "foo".to_string(),
             vec![
+                Expr::Ident("foo".to_string()),
                 Expr::Call(
-                    "bar".to_string(),
                     vec![
-                        Expr::Ident("baz".to_string())
+                        Expr::Ident("bar".to_string()),
+                        Expr::Ident("baz".to_string()),
                     ],
                 ),
                 Expr::Ident("qux".to_string()),
