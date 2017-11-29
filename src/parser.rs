@@ -40,7 +40,7 @@ impl fmt::Display for Token {
 #[derive(Debug, PartialEq, Eq)]
 pub enum Item {
     /// A function definition: something like `(defun foo bar)`.
-    Function(String, Box<Expr>),
+    Function(String, Expr),
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -195,7 +195,7 @@ impl<'src> Parser<'src> {
                 let defun_name = self.parse_ident()?;
                 let body = self.parse_expr()?;
                 self.expect_token(Token::RParen)?;
-                Item::Function(defun_name, Box::new(body))
+                Item::Function(defun_name, body)
             },
             tok => return Err(ParseError::ExpectedFoundToken("function declaration".to_string(), tok)),
         })
@@ -323,7 +323,7 @@ mod test {
         let mut parser = Parser::from_source(src);
         let expected = Ok(Item::Function(
             "foo".to_string(),
-            Box::new(Expr::Ident("bar".to_string())),
+            Expr::Ident("bar".to_string()),
         ));
         let actual = parser.parse_item();
         assert_eq!(actual, expected);
