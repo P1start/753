@@ -66,10 +66,14 @@ pub enum ItemKind {
     Function(String, Expr),
 }
 
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
+pub struct ExprId(u32);
+
 #[derive(Debug, PartialEq, Eq)]
 pub struct Expr {
     pub kind: ExprKind,
     pub span: Span,
+    pub id: ExprId,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -211,12 +215,23 @@ impl<'src> Tokenizer<'src> {
 pub struct Parser<'src> {
     /// The tokenizer.
     tokenizer: Tokenizer<'src>,
+    
+    next_expr_id: u32,
 }
 
 impl<'src> Parser<'src> {
     pub fn from_source(src: &'src str) -> Self {
         Parser {
             tokenizer: Tokenizer::from_source(src),
+            next_expr_id: 0,
+        }
+    }
+
+    fn new_expr(&mut self, kind: ExprKind, span: Span) -> Expr {
+        let id = ExprId(self.next_expr_id);
+        self.next_expr_id += 1;
+        Expr {
+            kind, span, id
         }
     }
 
@@ -282,7 +297,7 @@ impl<'src> Parser<'src> {
                         let expr_kind = ExprKind::Let(name, Box::new(value), Box::new(rest));
                         let hi = self.tokenizer.pos;
                         let span = self.tokenizer.span(lo, hi);
-                        return Ok(Expr { kind: expr_kind, span: span })
+                        return Ok(self.new_expr(expr_kind, span))
                     },
                     _ => {},
                 }
@@ -306,7 +321,7 @@ impl<'src> Parser<'src> {
         };
         let hi = self.tokenizer.pos;
         let span = self.tokenizer.span(lo, hi);
-        Ok(Expr { kind: expr_kind, span })
+        Ok(self.new_expr(expr_kind, span))
     }
 }
 

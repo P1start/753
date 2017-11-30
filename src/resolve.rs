@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use parser::{Item, ItemKind, Expr, ExprKind};
+use parser::{Item, ItemKind, Expr, ExprKind, ExprId};
 
 /// An identifier for a local binding within a function.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -8,7 +8,7 @@ pub struct ResolveId(u32);
 /// See `Resolution` docs for details about some of this struct's fields.
 #[derive(Debug)]
 struct Resolver<'ast> {
-    lookup: HashMap<*const str, ResolveId>,
+    lookup: HashMap<ExprId, ResolveId>,
     dangling_refs: HashSet<&'ast str>,
 
     locals: HashMap<&'ast str, ResolveId>,
@@ -55,7 +55,7 @@ impl<'ast> Resolver<'ast> {
             ExprKind::Integer(_) => {},
             ExprKind::Ident(ref name) => {
                 if let Some(&id) = self.locals.get(&**name) {
-                    self.lookup.insert(&**name, id);
+                    self.lookup.insert(expr.id, id);
                 } else {
                     self.dangling_refs.insert(&**name);
                 }
@@ -65,7 +65,7 @@ impl<'ast> Resolver<'ast> {
 
                 let id = self.generate_new_resolve_id();
                 let old_value = self.locals.get(&**name).map(|x| *x);
-                self.lookup.insert(&**name, id);
+                self.lookup.insert(expr.id, id);
                 self.locals.insert(&**name, id);
 
                 self.build_lookup_table_for_expr(rest);
@@ -83,10 +83,7 @@ impl<'ast> Resolver<'ast> {
 #[derive(Debug)]
 pub struct Resolution<'ast> {
     /// The lookup table that maps strings from the `ItemKind` to resolve IDs.
-    /// 
-    /// Lookup is done based on memory address; think of the `*const str` as being an arbitrary
-    /// unique ID assigned to every identifier in the `ItemKind`.
-    pub lookup: HashMap<*const str, ResolveId>,
+    pub lookup: HashMap<ExprId, ResolveId>,
     /// All the bindings within the `ItemKind` that don't reference a local variable. This is either
     /// because they reference global variables (which will be resolved later) or they reference
     /// an undefined identifier (in which case the program is invalid).
@@ -113,12 +110,9 @@ mod test {
         let mut parser = Parser::from_source(src);
         let item = parser.parse_item().unwrap();
         let (a1, a2) = match item.kind {
-            ItemKind::Function(_, ref expr) => match expr.kind {
-                ExprKind::Let(ref a1, _, ref expr) => match expr.kind {
-                    ExprKind::SExpr(ref exprs) => match exprs[0].kind {
-                        ExprKind::Ident(ref a2) => (&**a1 as *const _, &**a2 as *const _),
-                        _ => panic!(),
-                    },
+            ItemKind::Function(_, ref let_expr) => match let_expr.kind {
+                ExprKind::Let(_, _, ref expr) => match expr.kind {
+                    ExprKind::SExpr(ref exprs) => (let_expr.id, exprs[0].id),
                     _ => panic!(),
                 },
                 _ => panic!(),
