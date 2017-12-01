@@ -96,6 +96,30 @@ pub enum ExprKind {
     Let(String, Box<Expr>, Box<Expr>),
 }
 
+impl fmt::Display for ExprKind {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            ExprKind::SExpr(ref exprs) => {
+                write!(f, "(")?;
+                let mut first = true;
+                for expr in exprs {
+                    if !first {
+                        write!(f, " ")?;
+                    }
+                    first = false;
+                    write!(f, "{}", expr.kind)?;
+                }
+                write!(f, ")")
+            },
+            ExprKind::Ident(ref s) => write!(f, "{}", s),
+            ExprKind::Integer(i) => write!(f, "{}", i),
+            ExprKind::Let(ref name, ref what, ref rest) => {
+                write!(f, "(let [{} {}] {})", name, what.kind, rest.kind)
+            },
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum ParseError {
     EndOfFile(Span),
@@ -269,9 +293,8 @@ impl<'src> Parser<'src> {
     pub fn parse_item(&mut self) -> Result<Item, ParseError> {
         let lo = self.tokenizer.pos;
         let matching_bracket = self.parse_bracket()?;
-        Ok(match self.tokenizer.peek_token()? {
+        Ok(match self.tokenizer.parse_token()? {
             Token { kind: TokenKind::Defun, .. } => {
-                self.tokenizer.parse_token()?;
                 let defun_name = self.parse_ident()?;
                 let body = self.parse_expr()?;
                 self.expect_token(&matching_bracket)?;
@@ -309,6 +332,7 @@ impl<'src> Parser<'src> {
                         let value = self.parse_expr()?;
                         self.expect_token(&matching_bracket_inner)?;
                         let rest = self.parse_expr()?;
+                        self.expect_token(&matching_bracket)?;
                         let expr_kind = ExprKind::Let(name, Box::new(value), Box::new(rest));
                         let hi = self.tokenizer.pos;
                         let span = self.tokenizer.span(lo, hi);
