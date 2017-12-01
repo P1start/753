@@ -3,7 +3,7 @@ use parser::{Item, ItemKind, Expr, ExprKind, ExprId};
 
 /// An identifier for a local binding within a function.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct ResolveId(u32);
+pub struct ResolveId(pub u32);
 
 /// See `Resolution` docs for details about some of this struct's fields.
 #[derive(Debug)]
@@ -88,6 +88,8 @@ pub struct Resolution {
     /// because they reference global variables (which will be resolved later) or they reference
     /// an undefined identifier (in which case the program is invalid).
     pub dangling_refs: HashSet<String>,
+    /// The total number of local variables in this function.
+    pub local_variables: u32,
 }
 
 pub fn resolve_names_in_item(item: &Item) -> Resolution {
@@ -95,6 +97,7 @@ pub fn resolve_names_in_item(item: &Item) -> Resolution {
     Resolution {
         lookup: resolver.lookup,
         dangling_refs: resolver.dangling_refs.into_iter().map(|x| x.to_string()).collect(),
+        local_variables: resolver.next_resolve_id,
     }
 }
 
