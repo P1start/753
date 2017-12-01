@@ -60,6 +60,14 @@ pub struct Item {
     pub span: Span,
 }
 
+impl Item {
+    pub fn get_base_name(&self) -> &str {
+        match self.kind {
+            ItemKind::Function(ref s, _) => s,
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum ItemKind {
     /// A function definition: something like `(defun foo bar)`.
@@ -88,11 +96,6 @@ pub enum ExprKind {
     Let(String, Box<Expr>, Box<Expr>),
 }
 
-#[derive(Debug)]
-pub struct Ast {
-    pub declarations: Vec<ExprKind>,
-}
-
 #[derive(Debug, PartialEq, Eq)]
 pub enum ParseError {
     EndOfFile(Span),
@@ -118,11 +121,11 @@ pub fn is_keyword(s: &str) -> bool {
 }
 
 impl<'src> Tokenizer<'src> {
-    pub fn from_source(src: &'src str) -> Self {
+    pub fn from_source(src: &'src str, file: FileId) -> Self {
         Tokenizer {
             src: src,
             pos: 0,
-            file: FileId(0), // FIXME
+            file: file,
         }
     }
 
@@ -220,9 +223,9 @@ pub struct Parser<'src> {
 }
 
 impl<'src> Parser<'src> {
-    pub fn from_source(src: &'src str) -> Self {
+    pub fn from_source(src: &'src str, file: FileId) -> Self {
         Parser {
-            tokenizer: Tokenizer::from_source(src),
+            tokenizer: Tokenizer::from_source(src, file),
             next_expr_id: 0,
         }
     }
@@ -249,6 +252,18 @@ impl<'src> Parser<'src> {
         } else {
             Err(ParseError::ExpectedFoundToken(span, format!("`{}`", token), actual))
         }
+    }
+
+    pub fn parse_items(&mut self) -> Result<Vec<Item>, ParseError> {
+        let mut items = vec![];
+        loop {
+            match self.parse_item() {
+                Ok(item) => items.push(item),
+                Err(ParseError::EndOfFile(_)) => break,
+                Err(err) => return Err(err),
+            }
+        }
+        Ok(items)
     }
 
     pub fn parse_item(&mut self) -> Result<Item, ParseError> {
@@ -348,7 +363,7 @@ mod test {
     #[test]
     fn test_tokenizer() {
         let src = "(foo 1\n\t[2 3a]) defun";
-        let mut tok = Tokenizer::from_source(src);
+        let mut tok = Tokenizer::from_source(src, FileId(0));
         let mut i = 0;
         loop {
             match (i, tok.parse_token().map(|x| x.kind)) {
@@ -371,7 +386,7 @@ mod test {
     #[test]
     fn test_parser_matching_square_brackets() {
         let src = "[foo [1 baz]]";
-        let mut parser = Parser::from_source(src);
+        let mut parser = Parser::from_source(src, FileId(0));
         let actual = parser.parse_expr().unwrap();
         match_test! { actual.kind;
             ExprKind::SExpr(ref v), v[0].kind;
@@ -394,7 +409,7 @@ mod test {
     #[test]
     fn test_parser_matching_parentheses() {
         let src = "(foo [1 baz])";
-        let mut parser = Parser::from_source(src);
+        let mut parser = Parser::from_source(src, FileId(0));
         let actual = parser.parse_expr().unwrap();
         match_test! { actual.kind;
             ExprKind::SExpr(ref v), v[0].kind;
@@ -417,7 +432,7 @@ mod test {
     #[test]
     fn test_unmatched_brackets1() {
         let src = "(foo bar]";
-        let mut parser = Parser::from_source(src);
+        let mut parser = Parser::from_source(src, FileId(0));
         let expected_span = parser.tokenizer.span(8, 9);
         let expected = Err(ParseError::ExpectedFoundToken(expected_span, "expression".to_string(), TokenKind::RSqrBr));
         let actual = parser.parse_expr();
@@ -427,7 +442,7 @@ mod test {
     #[test]
     fn test_unmatched_brackets2() {
         let src = "[baz qux)";
-        let mut parser = Parser::from_source(src);
+        let mut parser = Parser::from_source(src, FileId(0));
         let expected_span = parser.tokenizer.span(8, 9);
         let expected = Err(ParseError::ExpectedFoundToken(expected_span, "expression".to_string(), TokenKind::RParen));
         let actual = parser.parse_expr();
@@ -437,7 +452,7 @@ mod test {
     #[test]
     fn test_unmatched_brackets3() {
         let src = "(defun foo bar]";
-        let mut parser = Parser::from_source(src);
+        let mut parser = Parser::from_source(src, FileId(0));
         let expected_span = parser.tokenizer.span(14, 15);
         let expected = Err(ParseError::ExpectedFoundToken(expected_span, "`)`".to_string(), TokenKind::RSqrBr));
         let actual = parser.parse_item();
@@ -447,7 +462,7 @@ mod test {
     #[test]
     fn test_definition() {
         let src = "(defun foo bar)";
-        let mut parser = Parser::from_source(src);
+        let mut parser = Parser::from_source(src, FileId(0));
         let actual = parser.parse_item().unwrap();
         match_test! { actual.kind;
             ItemKind::Function(ref name, ref body), &**name;
@@ -463,7 +478,7 @@ mod test {
     #[test]
     fn test_let() {
         let src = "(let [foo (add 1 1)] bar)";
-        let mut parser = Parser::from_source(src);
+        let mut parser = Parser::from_source(src, FileId(0));
         let actual = parser.parse_expr().unwrap();
         match_test! { actual.kind;
             ExprKind::Let(ref name, _, _), &**name;

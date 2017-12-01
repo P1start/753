@@ -81,20 +81,20 @@ impl<'ast> Resolver<'ast> {
 /// This contains information about all the local references within an item, as well as any
 /// dangling references (probably referring to globals).
 #[derive(Debug)]
-pub struct Resolution<'ast> {
+pub struct Resolution {
     /// The lookup table that maps strings from the `ItemKind` to resolve IDs.
     pub lookup: HashMap<ExprId, ResolveId>,
     /// All the bindings within the `ItemKind` that don't reference a local variable. This is either
     /// because they reference global variables (which will be resolved later) or they reference
     /// an undefined identifier (in which case the program is invalid).
-    pub dangling_refs: HashSet<&'ast str>,
+    pub dangling_refs: HashSet<String>,
 }
 
 pub fn resolve_names_in_item(item: &Item) -> Resolution {
     let resolver = Resolver::from_item(item);
     Resolution {
         lookup: resolver.lookup,
-        dangling_refs: resolver.dangling_refs,
+        dangling_refs: resolver.dangling_refs.into_iter().map(|x| x.to_string()).collect(),
     }
 }
 
@@ -103,11 +103,12 @@ mod test {
     #![allow(unused_variables, unreachable_patterns)]
     use super::*;
     use parser::{Parser, ItemKind, ExprKind};
+    use codemap::FileId;
 
     #[test]
     fn test_basic_name_resolution() {
         let src = "(defun foo (let [a 1] (a b)))";
-        let mut parser = Parser::from_source(src);
+        let mut parser = Parser::from_source(src, FileId(0));
         let item = parser.parse_item().unwrap();
         let (a1, a2) = match item.kind {
             ItemKind::Function(_, ref let_expr) => match let_expr.kind {
@@ -120,7 +121,7 @@ mod test {
         };
         let resolution = resolve_names_in_item(&item);
         let mut expected_dangling_refs = HashSet::new();
-        expected_dangling_refs.insert("b");
+        expected_dangling_refs.insert("b".to_string());
         assert_eq!(resolution.dangling_refs, expected_dangling_refs);
 
         let mut expected_lookup = HashMap::new();
