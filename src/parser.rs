@@ -25,6 +25,10 @@ pub enum TokenKind {
     Integer(i64), // TODO is it right to use i64 here?
     /// An identifier (e.g., `foo`)
     Ident(String),
+    /// The token at the end of a file.
+    /// 
+    /// This is generated endlessly by the tokenizer once it has reached the end of a file.
+    Eof,
 }
 
 impl TokenKind {
@@ -48,6 +52,7 @@ impl fmt::Display for TokenKind {
             TokenKind::Let => f.write_str("let"),
             TokenKind::Integer(i) => write!(f, "{}", i),
             TokenKind::Ident(ref s) => write!(f, "{}", s),
+            TokenKind::Eof => f.write_str("eof"),
         }
     }
 }
@@ -122,7 +127,6 @@ impl fmt::Display for ExprKind {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ParseError {
-    EndOfFile(Span),
     UnknownChar(Span, char),
     ExpectedFoundToken(Span, String, TokenKind),
 }
@@ -153,18 +157,15 @@ impl<'src> Tokenizer<'src> {
         }
     }
 
-    fn peek_char(&mut self) -> Result<char, ParseError> {
-        self.src[self.pos..].chars().next().ok_or_else(|| {
-            let span = self.span(self.pos, self.pos);
-            ParseError::EndOfFile(span)
-        })
+    fn peek_char(&mut self) -> Option<char> {
+        self.src[self.pos..].chars().next()
     }
 
-    fn advance(&mut self) -> Result<char, ParseError> {
+    fn advance(&mut self) -> Option<char> {
         let this_char = self.peek_char()?;
         let char_length = this_char.len_utf8();
         self.pos += char_length;
-        Ok(this_char)
+        Some(this_char)
     }
 
     fn is_ident_char(c: char) -> bool {
@@ -178,30 +179,33 @@ impl<'src> Tokenizer<'src> {
         Span::new(lo as _, hi as _, self.file)
     }
 
-    pub fn parse_token(&mut self) -> Result<Token, ParseError> {
-        // Skip whitespace
+    fn skip_whitespace(&mut self) {
         loop {
             match self.peek_char() {
-                Ok(s) if s.is_whitespace() => self.advance()?,
+                Some(s) if s.is_whitespace() => self.advance(),
                 _ => break,
             };
         }
+    }
+
+    pub fn parse_token(&mut self) -> Result<Token, ParseError> {
+        self.skip_whitespace();
 
         let lo = self.pos;
 
-        let this_char = self.advance()?;
+        let this_char = self.advance();
         let result = match this_char {
-            '(' => TokenKind::LParen,
-            ')' => TokenKind::RParen,
-            '[' => TokenKind::LSqrBr,
-            ']' => TokenKind::RSqrBr,
-            c if Self::is_ident_char(c) => {
+            Some('(') => TokenKind::LParen,
+            Some(')') => TokenKind::RParen,
+            Some('[') => TokenKind::LSqrBr,
+            Some(']') => TokenKind::RSqrBr,
+            Some(c) if Self::is_ident_char(c) => {
                 let mut string = String::new();
-                string.push(this_char);
+                string.push(c);
                 loop {
                     match self.peek_char() {
-                        Ok(next_char) if Self::is_ident_char(next_char) => {
-                            self.advance()?;
+                        Some(next_char) if Self::is_ident_char(next_char) => {
+                            self.advance();
                             string.push(next_char);
                         },
                         _ => break,
@@ -218,11 +222,12 @@ impl<'src> Tokenizer<'src> {
                     },
                 }
             },
-            c => {
+            Some(c) => {
                 let hi = self.pos;
                 let span = self.span(lo, hi);
                 return Err(ParseError::UnknownChar(span, c))
             },
+            None => TokenKind::Eof,
         };
         let hi = self.pos;
         let span = self.span(lo, hi);
@@ -283,8 +288,11 @@ impl<'src> Parser<'src> {
         loop {
             match self.parse_item() {
                 Ok(item) => items.push(item),
-                Err(ParseError::EndOfFile(_)) => break,
                 Err(err) => return Err(err),
+            }
+            self.tokenizer.skip_whitespace();
+            if let Ok(TokenKind::Eof) = self.tokenizer.peek_token().map(|x| x.kind) {
+                break
             }
         }
         Ok(items)
@@ -400,7 +408,7 @@ mod test {
                 (6, Ok(TokenKind::RSqrBr)) => {},
                 (7, Ok(TokenKind::RParen)) => {},
                 (8, Ok(TokenKind::Defun)) => {},
-                (9, Err(ParseError::EndOfFile(_))) => break,
+                (9, Ok(TokenKind::Eof)) => break,
                 (i, res) => panic!("unexpected token {}: {:?}", i, res),
             }
             i += 1;
@@ -529,5 +537,13 @@ mod test {
             ExprKind::Ident(ref s), &**s;
             "bar", ()
         }
+    }
+
+    #[test]
+    fn test_parse_items() {
+        let src = "(defun foo 0)(defun bar 1) \n\n";
+        let mut parser = Parser::from_source(src, FileId(0));
+        let actual = parser.parse_items().unwrap();
+        assert_eq!(actual.len(), 2);
     }
 }
