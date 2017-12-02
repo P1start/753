@@ -24,7 +24,7 @@ impl fmt::Display for Mir {
                 write!(f, "\n")?;
             }
             first = false;
-            write!(f, "bb{}: {}", i, bb)?;
+            write!(f, "(bb {} {})", i, bb)?;
         }
         Ok(())
     }
@@ -48,12 +48,12 @@ pub struct BasicBlock {
 
 impl fmt::Display for BasicBlock {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        writeln!(f, "{{")?;
+        writeln!(f, "(do")?;
         for instruction in &self.instructions {
-            writeln!(f, "    {};", instruction)?;
+            writeln!(f, "    {}", instruction)?;
         }
         writeln!(f, "    {}", self.terminator)?;
-        write!(f, "}}")
+        write!(f, ")")
     }
 }
 
@@ -88,7 +88,7 @@ impl fmt::Display for Instruction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Instruction::Assign(id, ref rvalue) => {
-                write!(f, "var{} = {}", id.0, rvalue)
+                write!(f, "(set! var{} {})", id.0, rvalue)
             },
         }
     }
@@ -140,8 +140,8 @@ pub enum Terminator {
 impl fmt::Display for Terminator {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            Terminator::Jump(i) => write!(f, "jump bb{}", i),
-            Terminator::Return(i) => write!(f, "return var{}", i.0),
+            Terminator::Jump(i) => write!(f, "(jump bb{})", i),
+            Terminator::Return(i) => write!(f, "(return var{})", i.0),
             Terminator::Dummy => write!(f, "<dummy> (THIS IS A BUG!)"),
         }
     }
