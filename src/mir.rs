@@ -72,6 +72,12 @@ impl BasicBlock {
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct VarId(u32);
 
+impl fmt::Display for VarId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "var{}", self.0)
+    }
+}
+
 #[derive(Debug)]
 pub enum Instruction {
     /// `var(.0) = .1`
@@ -101,7 +107,7 @@ pub enum RValue {
 impl fmt::Display for RValue {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            RValue::Variable(id) => write!(f, "var{}", id.0),
+            RValue::Variable(id) => write!(f, "{}", id),
             RValue::Global(id) => write!(f, "global{}", id),
             RValue::Constant(ref value) => write!(f, "const {}", value),
         }
