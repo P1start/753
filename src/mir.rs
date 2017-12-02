@@ -102,6 +102,8 @@ pub enum RValue {
     Global(usize),
     /// A constant
     Constant(Value),
+    /// `(call var(.0) [var(.1)...])`
+    Call(VarId, Vec<VarId>),
 }
 
 impl fmt::Display for RValue {
@@ -109,7 +111,14 @@ impl fmt::Display for RValue {
         match *self {
             RValue::Variable(id) => write!(f, "{}", id),
             RValue::Global(id) => write!(f, "global{}", id),
-            RValue::Constant(ref value) => write!(f, "const {}", value),
+            RValue::Constant(ref value) => write!(f, "{}", value),
+            RValue::Call(id, ref ids) => {
+                write!(f, "(call {}", id)?;
+                for id in ids {
+                    write!(f, " {}", id)?;
+                }
+                write!(f, ")")
+            },
         }
     }
 }
@@ -218,7 +227,23 @@ impl<'ctxt> MirBuilder<'ctxt> {
                 self.bb().instructions.push(instruction);
                 self.generate_code_from_expr(rest)
             },
-            _ => panic!(),
+            ExprKind::SExpr(ref exprs) => {
+                let func = &exprs[0];
+                let args = &exprs[1..];
+                // First, evaluate the arguments in left-to-right order.
+                let mut arg_ids = vec![];
+                for arg in args {
+                    arg_ids.push(self.generate_code_from_expr(arg)?);
+                }
+                // Next, evaluate the function
+                let func_id = self.generate_code_from_expr(func)?;
+                // Finally, generate a call instruction
+                let var_id = self.new_var_id();
+                let rvalue = RValue::Call(func_id, arg_ids);
+                let instruction = Instruction::Assign(var_id, rvalue);
+                self.bb().instructions.push(instruction);
+                Ok(var_id)
+            },
         }
     }
 }
