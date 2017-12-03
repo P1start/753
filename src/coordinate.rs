@@ -7,6 +7,7 @@ use resolve::{self, Resolution};
 use codemap::{FileId, FileInfo};
 use util::Error;
 use mir::{Mir, Context};
+use codegen;
 
 use std::fs::File;
 use std::path::Path;
@@ -40,7 +41,31 @@ impl Coordinator {
 
         let mut source = String::new();
         file.read_to_string(&mut source)?;
-        let file_info = FileInfo { name: path.to_owned() };
+        let file_info = FileInfo { name: path.to_string_lossy().to_string() };
+        let mut parser = Parser::from_source(&source, coordinator.new_file_id(file_info));
+
+        let items = parser.parse_items()?;
+        for item in items {
+            coordinator.items.push(item);
+            coordinator.resolutions.push(None);
+            coordinator.mirs.push(None);
+        }
+
+        Ok(coordinator)
+    }
+
+    pub fn from_str(source: &str) -> Result<Self, Error> {
+        // FIXME(cleanup): code duplication from from_path
+        let mut coordinator = Coordinator {
+            items: vec![],
+            resolutions: vec![],
+            globals: HashMap::new(),
+            mirs: vec![],
+            file_info: vec![],
+            next_file_id: 0,
+        };
+
+        let file_info = FileInfo { name: "<string input>".to_string() };
         let mut parser = Parser::from_source(&source, coordinator.new_file_id(file_info));
 
         let items = parser.parse_items()?;
@@ -81,5 +106,9 @@ impl Coordinator {
             self.mirs[i] = Some(mir);
         }
         Ok(())
+    }
+
+    pub fn run_mirs(&mut self) -> i64 {
+        codegen::jit_run(self)
     }
 }

@@ -4,3 +4,4 @@ version = "0.0.0"
 authors = ["P1start"]
 
 [dependencies]
+llvm-sys = "40.0.0"

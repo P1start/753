@@ -1,11 +1,9 @@
-use std::path::PathBuf;
-
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub struct FileId(pub u32);
 
 #[derive(Debug)]
 pub struct FileInfo {
-    pub name: PathBuf,
+    pub name: String,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
