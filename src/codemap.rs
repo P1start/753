@@ -20,4 +20,8 @@ impl Span {
     pub fn new(lo: u32, hi: u32, file: FileId) -> Span {
         Span { lo, hi, file }
     }
+
+    pub fn dummy() -> Span {
+        Span { lo: 0, hi: 0, file: FileId(!0) }
+    }
 }

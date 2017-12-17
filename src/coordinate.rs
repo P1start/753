@@ -2,9 +2,9 @@
 //! 
 //! See src/notes.md for details on how this will work.
 
-use parser::{Parser, Item};
+use parser::{Parser, Item, ItemKind, Expr, ExprKind};
 use resolve::{self, Resolution};
-use codemap::{FileId, FileInfo};
+use codemap::{FileId, FileInfo, Span};
 use util::Error;
 use mir::{Mir, Context};
 use codegen;
@@ -12,7 +12,8 @@ use codegen;
 use std::fs::File;
 use std::path::Path;
 use std::io::Read;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::mem;
 
 pub struct Coordinator {
     pub items: Vec<Item>,
@@ -85,30 +86,110 @@ impl Coordinator {
         FileId(file_id)
     }
 
-    pub fn resolve_names(&mut self) {
-        for (i, item) in self.items.iter().enumerate() {
-            let name = item.get_base_name();
-            self.resolutions[i] = Some(resolve::resolve_names_in_item(&item));
-            self.globals.insert(name.to_string(), i);
-        }
+    fn resolve_item(&mut self, item_idx: usize) {
+        let item = &self.items[item_idx];
+        let name = item.get_base_name();
+        self.resolutions[item_idx] = Some(resolve::resolve_names_in_item(&item));
+        self.globals.insert(name.to_string(), item_idx);
     }
 
-    pub fn build_mirs(&mut self) -> Result<(), Error> {
-        // TODO: currently this just builds things in the order they were defined. In the future
-        // this will work out the appropriate ordering so that compile-time execution will work.
-        for (i, item) in self.items.iter().enumerate() {
-            let context = Context {
-                resolution: &self.resolutions[i].as_ref().unwrap(),
-                item: item,
-                globals: &self.globals,
-            };
-            let mir = Mir::from_context(&context)?;
-            self.mirs[i] = Some(mir);
+    fn generate_new_function(&mut self, body: Expr) -> usize {
+        let item = Item {
+            kind: ItemKind::Function(format!("<anon{}>", self.items.len()), body),
+            span: Span::dummy(),
+        };
+        self.items.push(item);
+        self.resolutions.push(None);
+        self.mirs.push(None);
+        self.items.len() - 1
+    }
+
+    fn expand(&mut self, item_idx: usize) -> Result<(), Error> {
+        // find all (eval)s, generate functions for them and expand & run those functions
+        let mut exprs = vec![];
+        {
+            let item = &mut self.items[item_idx];
+            let ItemKind::Function(_, ref mut expr) = item.kind;
+
+            expr.find_toplevel_mut(&mut |e| match e.kind {
+                ExprKind::Eval(_) => true,
+                _ => false,
+            }, &mut |e| {
+                // insert a temporary expression so we get ownership of e
+                let tmp_expr = Expr {
+                    kind: ExprKind::Integer(753),
+                    ..*e
+                };
+                let expr = mem::replace(e, tmp_expr);
+                exprs.push(expr);
+            });
         }
+
+        for expr in exprs {
+            let id = expr.id;
+            let inner = match expr.kind {
+                ExprKind::Eval(inner) => inner,
+                _ => unreachable!(),
+            };
+
+            let new_idx = self.generate_new_function(*inner);
+            let value = self.compile_and_run(new_idx)?;
+            
+            let item = &mut self.items[item_idx];
+            let ItemKind::Function(_, ref mut expr) = item.kind;
+            expr.find_toplevel_mut(
+                &mut |e| e.id == id,
+                &mut |e| {
+                    e.kind = ExprKind::Integer(value);
+                },
+            )
+        }
+
         Ok(())
     }
 
-    pub fn run_mirs(&mut self) -> i64 {
-        codegen::jit_run(self)
+    fn expand_and_resolve_dependencies(&mut self, item_idx: usize) -> Result<HashSet<usize>, Error> {
+        // FIXME: avoid expanding more than once
+        self.expand(item_idx)?;
+
+        if self.resolutions[item_idx].is_none() {
+            self.resolve_item(item_idx);
+        }
+
+        let dangling_refs = self.resolutions[item_idx].as_ref().unwrap().dangling_refs.clone();
+        let mut idxs = HashSet::new();
+        idxs.insert(item_idx);
+        for item_name in dangling_refs {
+            let item_idx = self.items.iter().enumerate().filter(|&(_, item)| (item.get_base_name() == item_name)).map(|(i, _)| i).next().unwrap();
+            idxs.insert(item_idx);
+            let new_idxs = self.expand_and_resolve_dependencies(item_idx)?;
+            idxs.extend(new_idxs);
+        }
+
+        Ok(idxs)
+    }
+
+    fn compile_and_run(&mut self, item_idx: usize) -> Result<i64, Error> {
+        let idxs = self.expand_and_resolve_dependencies(item_idx)?;
+
+        let mut mirs = vec![];
+        let mut global_map = HashMap::new();
+        for idx in idxs {
+            let item = &self.items[idx];
+            let context = Context {
+                resolution: &self.resolutions[idx].as_ref().unwrap(),
+                item,
+                globals: &self.globals,
+            };
+            let mir = Mir::from_context(&context)?;
+            global_map.insert(idx, mirs.len());
+            mirs.push(mir);
+        }
+        Ok(codegen::jit_run(&mirs, global_map[&item_idx], global_map))
+    }
+
+    pub fn run(&mut self) -> i64 {
+        let main_idx = self.items.iter().enumerate().filter(|&(_, x)| x.get_base_name() == "main").map(|(i, _)| i).next().unwrap();
+        self.compile_and_run(main_idx).unwrap()
     }
 }

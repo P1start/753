@@ -72,6 +72,7 @@ impl<'ast> Resolver<'ast> {
 
                 old_value.map(|old_id| self.locals.insert(&**name, old_id));
             },
+            ExprKind::Eval(_) => {},
         }
     }
 }

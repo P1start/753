@@ -1,8 +1,8 @@
 use mir::{Mir, VarId, Instruction, RValue, Terminator};
-use coordinate::Coordinator;
 use llvm::{self, Context, Type, Value, Builder};
 
 use std::mem;
+use std::collections::HashMap;
 
 struct Codegen<'a> {
     context: &'a mut Context,
@@ -11,6 +11,7 @@ struct Codegen<'a> {
 
     function: Value,
     functions: &'a mut [Value],
+    global_map: &'a HashMap<usize, usize>,
     bbs: Vec<llvm::BasicBlock>,
     vars: Vec<Option<Value>>,
     stack_vars: Vec<Option<Value>>,
@@ -83,7 +84,7 @@ impl<'a> Codegen<'a> {
             RValue::Variable(var) => self.translate_var(var),
             RValue::Constant(::mir::Value::Integer(i)) => self.context.const_i64(i as u64),
             // FIXME assumes globals are all functions
-            RValue::Global(i) => self.functions[i],
+            RValue::Global(i) => self.functions[self.global_map[&i]],
             RValue::Call(func, ref args) => {
                 let mut arg_vals = Vec::with_capacity(args.len());
                 for &arg in args {
@@ -104,24 +105,25 @@ impl<'a> Codegen<'a> {
     }
 }
 
-pub fn jit_run(coordinator: &Coordinator) -> i64 {
+pub fn jit_run(mirs: &[Mir], idx: usize, global_map: HashMap<usize, usize>) -> i64 {
+    for mir in mirs {
+        // FIXME debug
+        println!("{}", mir);
+    }
+
     let mut context = Context::new();
     let mut module = context.create_module_with_name("753");
 
     let i64_type = context.type_i64();
 
     let mut functions = vec![];
-    for mir in &coordinator.mirs {
-        let mir = mir.as_ref().unwrap();
-
+    for mir in mirs {
         // Currently every function is of type (func () i64)
         let function_type = Type::function_type(i64_type, &mut []);
         functions.push(module.add_function(&mir.name, function_type));
     }
 
-    for (i, mir) in coordinator.mirs.iter().enumerate() {
-        let mir = mir.as_ref().unwrap();
-
+    for (i, mir) in mirs.iter().enumerate() {
         let function = functions[i];
         let mut builder = context.create_builder();
         let mut codegen = Codegen {
@@ -131,6 +133,7 @@ pub fn jit_run(coordinator: &Coordinator) -> i64 {
 
             function,
             functions: &mut functions,
+            global_map: &global_map,
             bbs: vec![],
             vars: vec![None; mir.variable_info.len()],
             stack_vars: vec![None; mir.variable_info.len()],
@@ -146,23 +149,22 @@ pub fn jit_run(coordinator: &Coordinator) -> i64 {
 
     // FIXME(safety): we assume the function main exists here and has the appropriate signature.
     // For safety reasons we should assert that it exists and is as we expect it to be.
-    let addr = ee.get_function_address("main");
+    let name = &mirs[idx].name;
+    let addr = ee.get_function_address(name);
     let main: extern "C" fn() -> i64 = unsafe { mem::transmute(addr) };
     main()
 }
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use coordinate::Coordinator;
 
     #[test]
     fn test_basic_codegen() {
         let src = "(defun main 753)";
         let mut coordinator = Coordinator::from_str(src).unwrap();
 
-        coordinator.resolve_names();
-        coordinator.build_mirs().unwrap();
-        assert_eq!(coordinator.run_mirs(), 753);
+        assert_eq!(coordinator.run(), 753);
     }
 
     #[test]
@@ -170,8 +172,14 @@ mod test {
         let src = "(defun main (foo)) (defun bar 42) (defun foo (bar))";
         let mut coordinator = Coordinator::from_str(src).unwrap();
 
-        coordinator.resolve_names();
-        coordinator.build_mirs().unwrap();
-        assert_eq!(coordinator.run_mirs(), 42);
+        assert_eq!(coordinator.run(), 42);
+    }
+
+    #[test]
+    fn test_eval() {
+        let src = "(defun main (eval (foo))) (defun foo (eval (bar))) (defun bar 42)";
+        let mut coordinator = Coordinator::from_str(src).unwrap();
+
+        assert_eq!(coordinator.run(), 42)
     }
 }

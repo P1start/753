@@ -11,14 +11,14 @@ pub struct Context<'a> {
     pub globals: &'a HashMap<String, usize>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Mir {
     pub bbs: Vec<BasicBlock>,
     pub name: String,
     pub variable_info: Vec<VariableInfo>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct VariableInfo {
     /// Indicates whether or not the variable is mutable.
     /// 
@@ -52,7 +52,7 @@ impl Mir {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BasicBlock {
     pub instructions: Vec<Instruction>,
     pub terminator: Terminator,
@@ -90,7 +90,7 @@ impl fmt::Display for VarId {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Instruction {
     /// `var(.0) = .1`
     Assign(VarId, RValue),
@@ -106,7 +106,7 @@ impl fmt::Display for Instruction {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum RValue {
     /// `var(.0)`
     Variable(VarId),
@@ -135,7 +135,7 @@ impl fmt::Display for RValue {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Value {
     Integer(i64),
 }
@@ -148,7 +148,7 @@ impl fmt::Display for Value {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Terminator {
     /// `jump bb(.0)`
     Jump(usize),
@@ -263,6 +263,9 @@ impl<'ctxt> MirBuilder<'ctxt> {
                 let instruction = Instruction::Assign(var_id, rvalue);
                 self.bb().instructions.push(instruction);
                 Ok(var_id)
+            },
+            ExprKind::Eval(_) => {
+                panic!("internal compiler error: eval was not evaluated!")
             },
         }
     }

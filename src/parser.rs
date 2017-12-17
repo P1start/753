@@ -21,6 +21,8 @@ pub enum TokenKind {
     Defun,
     /// `let`
     Let,
+    /// `eval`
+    Eval,
     /// An integer (e.g., `-137`)
     Integer(i64), // TODO is it right to use i64 here?
     /// An identifier (e.g., `foo`)
@@ -50,6 +52,7 @@ impl fmt::Display for TokenKind {
             TokenKind::RSqrBr => f.write_str("]"),
             TokenKind::Defun => f.write_str("defun"),
             TokenKind::Let => f.write_str("let"),
+            TokenKind::Eval => f.write_str("eval"),
             TokenKind::Integer(i) => write!(f, "{}", i),
             TokenKind::Ident(ref s) => write!(f, "{}", s),
             TokenKind::Eof => f.write_str("eof"),
@@ -80,13 +83,40 @@ pub enum ItemKind {
 }
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
-pub struct ExprId(u32);
+pub struct ExprId(i32);
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Expr {
     pub kind: ExprKind,
     pub span: Span,
     pub id: ExprId,
+}
+
+impl Expr {
+    pub fn find_toplevel_mut<'a, F, G>(&'a mut self, p: &mut F, action: &mut G)
+        where F: FnMut(&Expr) -> bool,
+              G: FnMut(&'a mut Expr),
+    {
+        if p(self) {
+            action(self)
+        } else {
+            match self.kind {
+                ExprKind::SExpr(ref mut exprs) => {
+                    for expr in exprs {
+                        expr.find_toplevel_mut(p, action);
+                    }
+                },
+                ExprKind::Integer(_) | ExprKind::Ident(_) => {},
+                ExprKind::Let(_, ref mut what, ref mut inner) => {
+                    what.find_toplevel_mut(p, action);
+                    inner.find_toplevel_mut(p, action);
+                },
+                ExprKind::Eval(ref mut inner) => {
+                    inner.find_toplevel_mut(p, action);
+                }
+            }
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -99,6 +129,8 @@ pub enum ExprKind {
     Ident(String),
     /// A `let` expression: something like `(let [x 1] expr)`
     Let(String, Box<Expr>, Box<Expr>),
+    /// `eval`
+    Eval(Box<Expr>),
 }
 
 impl fmt::Display for ExprKind {
@@ -121,6 +153,7 @@ impl fmt::Display for ExprKind {
             ExprKind::Let(ref name, ref what, ref rest) => {
                 write!(f, "(let [{} {}] {})", name, what.kind, rest.kind)
             },
+            ExprKind::Eval(ref inner) => write!(f, "(eval {})", inner.kind),
         }
     }
 }
@@ -143,7 +176,7 @@ pub struct Tokenizer<'src> {
 
 pub fn is_keyword(s: &str) -> bool {
     match s {
-        "defun" | "let" => true,
+        "defun" | "let" | "eval" => true,
         _ => false,
     }
 }
@@ -217,6 +250,7 @@ impl<'src> Tokenizer<'src> {
                         match &*string {
                             "defun" => TokenKind::Defun,
                             "let" => TokenKind::Let,
+                            "eval" => TokenKind::Eval,
                             _ => TokenKind::Ident(string),
                         }
                     },
@@ -248,7 +282,7 @@ pub struct Parser<'src> {
     /// The tokenizer.
     tokenizer: Tokenizer<'src>,
     
-    next_expr_id: u32,
+    next_expr_id: i32,
 }
 
 impl<'src> Parser<'src> {
@@ -342,6 +376,15 @@ impl<'src> Parser<'src> {
                         let rest = self.parse_expr()?;
                         self.expect_token(&matching_bracket)?;
                         let expr_kind = ExprKind::Let(name, Box::new(value), Box::new(rest));
+                        let hi = self.tokenizer.pos;
+                        let span = self.tokenizer.span(lo, hi);
+                        return Ok(self.new_expr(expr_kind, span))
+                    },
+                    Token { kind: TokenKind::Eval, .. } => {
+                        self.tokenizer.parse_token()?;
+                        let inner = self.parse_expr()?;
+                        self.expect_token(&matching_bracket)?;
+                        let expr_kind = ExprKind::Eval(Box::new(inner));
                         let hi = self.tokenizer.pos;
                         let span = self.tokenizer.span(lo, hi);
                         return Ok(self.new_expr(expr_kind, span))
@@ -536,6 +579,17 @@ mod test {
             ExprKind::Let(_, _, ref rest), rest.kind;
             ExprKind::Ident(ref s), &**s;
             "bar", ()
+        }
+    }
+
+    #[test]
+    fn test_eval() {
+        let src = "(eval 1)";
+        let mut parser = Parser::from_source(src, FileId(0));
+        let actual = parser.parse_expr().unwrap();
+        match_test! { actual.kind;
+            ExprKind::Eval(ref inner), inner.kind;
+            ExprKind::Integer(1), ()
         }
     }
 

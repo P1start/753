@@ -14,10 +14,5 @@ use std::path::Path;
 
 fn main() {
     let mut coordinator = Coordinator::from_path(Path::new("/dev/tty")).unwrap();
-    coordinator.resolve_names();
-    coordinator.build_mirs().unwrap();
-    for mir in &coordinator.mirs {
-        println!("{}", mir.as_ref().unwrap());
-    }
-    println!("{}", coordinator.run_mirs());
+    println!("{}", coordinator.run());
 }
