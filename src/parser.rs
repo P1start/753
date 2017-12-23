@@ -101,7 +101,7 @@ impl Expr {
             action(self)
         } else {
             match self.kind {
-                ExprKind::SExpr(ref mut exprs) => {
+                ExprKind::Call(ref mut exprs) => {
                     for expr in exprs {
                         expr.find_toplevel_mut(p, action);
                     }
@@ -122,7 +122,7 @@ impl Expr {
 #[derive(Debug, PartialEq, Eq)]
 pub enum ExprKind {
     /// An s-expression: something like `(foo bar baz)`.
-    SExpr(Vec<Expr>),
+    Call(Vec<Expr>),
     /// An integer literal
     Integer(i64),
     /// An identifer
@@ -136,7 +136,7 @@ pub enum ExprKind {
 impl fmt::Display for ExprKind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            ExprKind::SExpr(ref exprs) => {
+            ExprKind::Call(ref exprs) => {
                 write!(f, "(")?;
                 let mut first = true;
                 for expr in exprs {
@@ -405,7 +405,7 @@ impl<'src> Parser<'src> {
                         }
                     }
                 }
-                ExprKind::SExpr(exprs)
+                ExprKind::Call(exprs)
             },
             TokenKind::Integer(i) => ExprKind::Integer(i),
             TokenKind::Ident(s) => ExprKind::Ident(s),
@@ -466,18 +466,18 @@ mod test {
         let mut parser = Parser::from_source(src, FileId(0));
         let actual = parser.parse_expr().unwrap();
         match_test! { actual.kind;
-            ExprKind::SExpr(ref v), v[0].kind;
+            ExprKind::Call(ref v), v[0].kind;
             ExprKind::Ident(ref s), &**s;
             "foo", ()
         }
         match_test! { actual.kind;
-            ExprKind::SExpr(ref v), v[1].kind;
-            ExprKind::SExpr(ref v), v[0].kind;
+            ExprKind::Call(ref v), v[1].kind;
+            ExprKind::Call(ref v), v[0].kind;
             ExprKind::Integer(1), ()
         }
         match_test! { actual.kind;
-            ExprKind::SExpr(ref v), v[1].kind;
-            ExprKind::SExpr(ref v), v[1].kind;
+            ExprKind::Call(ref v), v[1].kind;
+            ExprKind::Call(ref v), v[1].kind;
             ExprKind::Ident(ref s), &**s;
             "baz", ()
         }
@@ -489,18 +489,18 @@ mod test {
         let mut parser = Parser::from_source(src, FileId(0));
         let actual = parser.parse_expr().unwrap();
         match_test! { actual.kind;
-            ExprKind::SExpr(ref v), v[0].kind;
+            ExprKind::Call(ref v), v[0].kind;
             ExprKind::Ident(ref s), &**s;
             "foo", ()
         }
         match_test! { actual.kind;
-            ExprKind::SExpr(ref v), v[1].kind;
-            ExprKind::SExpr(ref v), v[0].kind;
+            ExprKind::Call(ref v), v[1].kind;
+            ExprKind::Call(ref v), v[0].kind;
             ExprKind::Integer(1), ()
         }
         match_test! { actual.kind;
-            ExprKind::SExpr(ref v), v[1].kind;
-            ExprKind::SExpr(ref v), v[1].kind;
+            ExprKind::Call(ref v), v[1].kind;
+            ExprKind::Call(ref v), v[1].kind;
             ExprKind::Ident(ref s), &**s;
             "baz", ()
         }
@@ -563,18 +563,18 @@ mod test {
         }
         match_test! { actual.kind;
             ExprKind::Let(_, ref to, _), to.kind;
-            ExprKind::SExpr(ref v), v[0].kind;
+            ExprKind::Call(ref v), v[0].kind;
             ExprKind::Ident(ref s), &**s;
             "add", ()
         }
         match_test! { actual.kind;
             ExprKind::Let(_, ref to, _), to.kind;
-            ExprKind::SExpr(ref v), v[1].kind;
+            ExprKind::Call(ref v), v[1].kind;
             ExprKind::Integer(1), ()
         }
         match_test! { actual.kind;
             ExprKind::Let(_, ref to, _), to.kind;
-            ExprKind::SExpr(ref v), v[2].kind;
+            ExprKind::Call(ref v), v[2].kind;
             ExprKind::Integer(1), ()
         }
         match_test! { actual.kind;

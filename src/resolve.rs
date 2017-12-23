@@ -47,7 +47,7 @@ impl<'ast> Resolver<'ast> {
 
     fn build_lookup_table_for_expr(&mut self, expr: &'ast Expr) {
         match expr.kind {
-            ExprKind::SExpr(ref exprs) => {
+            ExprKind::Call(ref exprs) => {
                 for expr in exprs {
                     self.build_lookup_table_for_expr(expr);
                 }
@@ -117,7 +117,7 @@ mod test {
         let (a1, a2) = match item.kind {
             ItemKind::Function(_, ref let_expr) => match let_expr.kind {
                 ExprKind::Let(_, _, ref expr) => match expr.kind {
-                    ExprKind::SExpr(ref exprs) => (let_expr.id, exprs[0].id),
+                    ExprKind::Call(ref exprs) => (let_expr.id, exprs[0].id),
                     _ => panic!(),
                 },
                 _ => panic!(),

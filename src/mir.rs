@@ -247,7 +247,7 @@ impl<'ctxt> MirBuilder<'ctxt> {
                 self.bb().instructions.push(instruction);
                 self.generate_code_from_expr(rest)
             },
-            ExprKind::SExpr(ref exprs) => {
+            ExprKind::Call(ref exprs) => {
                 let func = &exprs[0];
                 let args = &exprs[1..];
                 // First, evaluate the arguments in left-to-right order.
