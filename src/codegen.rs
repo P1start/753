@@ -161,7 +161,7 @@ mod test {
 
     #[test]
     fn test_basic_codegen() {
-        let src = "(defun main 753)";
+        let src = "(define (main) 753)";
         let mut coordinator = Coordinator::from_str(src).unwrap();
 
         assert_eq!(coordinator.run(), 753);
@@ -169,7 +169,7 @@ mod test {
 
     #[test]
     fn test_function_calls() {
-        let src = "(defun main (foo)) (defun bar 42) (defun foo (bar))";
+        let src = "(define (main) (foo)) (define (bar) 42) (define (foo) (bar))";
         let mut coordinator = Coordinator::from_str(src).unwrap();
 
         assert_eq!(coordinator.run(), 42);
@@ -177,7 +177,7 @@ mod test {
 
     #[test]
     fn test_eval() {
-        let src = "(defun main (eval (foo))) (defun foo (eval (bar))) (defun bar 42)";
+        let src = "(define (main) (eval (foo))) (define (foo) (eval (bar))) (define (bar) 42)";
         let mut coordinator = Coordinator::from_str(src).unwrap();
 
         assert_eq!(coordinator.run(), 42)

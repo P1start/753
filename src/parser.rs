@@ -17,8 +17,8 @@ pub enum TokenKind {
     LSqrBr,
     /// `]`
     RSqrBr,
-    /// `defun`
-    Defun,
+    /// `define`
+    Define,
     /// `let`
     Let,
     /// `eval`
@@ -50,7 +50,7 @@ impl fmt::Display for TokenKind {
             TokenKind::RParen => f.write_str(")"),
             TokenKind::LSqrBr => f.write_str("["),
             TokenKind::RSqrBr => f.write_str("]"),
-            TokenKind::Defun => f.write_str("defun"),
+            TokenKind::Define => f.write_str("define"),
             TokenKind::Let => f.write_str("let"),
             TokenKind::Eval => f.write_str("eval"),
             TokenKind::Integer(i) => write!(f, "{}", i),
@@ -78,7 +78,7 @@ impl Item {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ItemKind {
-    /// A function definition: something like `(defun foo bar)`.
+    /// A function definition: something like `(define (foo) bar)`.
     Function(String, Expr),
 }
 
@@ -176,7 +176,7 @@ pub struct Tokenizer<'src> {
 
 pub fn is_keyword(s: &str) -> bool {
     match s {
-        "defun" | "let" | "eval" => true,
+        "define" | "let" | "eval" => true,
         _ => false,
     }
 }
@@ -248,7 +248,7 @@ impl<'src> Tokenizer<'src> {
                     Ok(value) => TokenKind::Integer(value),
                     Err(_) => {
                         match &*string {
-                            "defun" => TokenKind::Defun,
+                            "define" => TokenKind::Define,
                             "let" => TokenKind::Let,
                             "eval" => TokenKind::Eval,
                             _ => TokenKind::Ident(string),
@@ -336,11 +336,13 @@ impl<'src> Parser<'src> {
         let lo = self.tokenizer.pos;
         let matching_bracket = self.parse_bracket()?;
         Ok(match self.tokenizer.parse_token()? {
-            Token { kind: TokenKind::Defun, .. } => {
-                let defun_name = self.parse_ident()?;
+            Token { kind: TokenKind::Define, .. } => {
+                let matching_bracket_name = self.parse_bracket()?;
+                let define_name = self.parse_ident()?;
+                self.expect_token(&matching_bracket_name)?;
                 let body = self.parse_expr()?;
                 self.expect_token(&matching_bracket)?;
-                let kind = ItemKind::Function(defun_name, body);
+                let kind = ItemKind::Function(define_name, body);
                 let hi = self.tokenizer.pos;
                 let span = self.tokenizer.span(lo, hi);
                 Item { kind, span }
@@ -437,7 +439,7 @@ mod test {
 
     #[test]
     fn test_tokenizer() {
-        let src = "(foo 1\n\t[2 3a]) defun";
+        let src = "(foo 1\n\t[2 3a]) define";
         let mut tok = Tokenizer::from_source(src, FileId(0));
         let mut i = 0;
         loop {
@@ -450,7 +452,7 @@ mod test {
                 (5, Ok(TokenKind::Ident(ref s))) if s == "3a" => {},
                 (6, Ok(TokenKind::RSqrBr)) => {},
                 (7, Ok(TokenKind::RParen)) => {},
-                (8, Ok(TokenKind::Defun)) => {},
+                (8, Ok(TokenKind::Define)) => {},
                 (9, Ok(TokenKind::Eof)) => break,
                 (i, res) => panic!("unexpected token {}: {:?}", i, res),
             }
@@ -526,9 +528,9 @@ mod test {
 
     #[test]
     fn test_unmatched_brackets3() {
-        let src = "(defun foo bar]";
+        let src = "(define (foo) bar]";
         let mut parser = Parser::from_source(src, FileId(0));
-        let expected_span = parser.tokenizer.span(14, 15);
+        let expected_span = parser.tokenizer.span(17, 18);
         let expected = Err(ParseError::ExpectedFoundToken(expected_span, "`)`".to_string(), TokenKind::RSqrBr));
         let actual = parser.parse_item();
         assert_eq!(actual, expected);
@@ -536,7 +538,7 @@ mod test {
 
     #[test]
     fn test_definition() {
-        let src = "(defun foo bar)";
+        let src = "(define (foo) bar)";
         let mut parser = Parser::from_source(src, FileId(0));
         let actual = parser.parse_item().unwrap();
         match_test! { actual.kind;
@@ -595,7 +597,7 @@ mod test {
 
     #[test]
     fn test_parse_items() {
-        let src = "(defun foo 0)(defun bar 1) \n\n";
+        let src = "(define (foo) 0)(define (bar) 1) \n\n";
         let mut parser = Parser::from_source(src, FileId(0));
         let actual = parser.parse_items().unwrap();
         assert_eq!(actual.len(), 2);

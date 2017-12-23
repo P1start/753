@@ -111,7 +111,7 @@ mod test {
 
     #[test]
     fn test_basic_name_resolution() {
-        let src = "(defun foo (let [a 1] (a b)))";
+        let src = "(define (foo) (let [a 1] (a b)))";
         let mut parser = Parser::from_source(src, FileId(0));
         let item = parser.parse_item().unwrap();
         let (a1, a2) = match item.kind {
