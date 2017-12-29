@@ -1,18 +1,24 @@
 extern crate llvm_sys;
+extern crate rand;
 
-pub mod parser;
-pub mod resolve;
+pub mod parse;
 pub mod codemap;
-pub mod coordinate;
 pub mod mir;
 pub mod util;
 pub mod llvm;
-pub mod codegen;
+pub mod compile;
 
-use coordinate::Coordinator;
-use std::path::Path;
+use compile::Compiler;
+use std::io::{self, Read};
 
 fn main() {
-    let mut coordinator = Coordinator::from_path(Path::new("/dev/tty")).unwrap();
-    println!("{}", coordinator.run());
+    let mut source = String::new();
+    io::stdin().read_to_string(&mut source).unwrap();
+    let mut compiler = Compiler::from_str(&source);
+    compiler.compile().unwrap();
+    for mir_builder in &compiler.mir_builders {
+        println!("{}", mir_builder);
+    }
+
+    println!("{}", compiler.run());
 }

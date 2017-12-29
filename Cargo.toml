@@ -5,3 +5,4 @@ authors = ["P1start"]
 
 [dependencies]
 llvm-sys = "40.0.0"
+rand = "0.4"

@@ -1,13 +1,13 @@
-use parser::ParseError;
-use mir::MirError;
+use parse::ParseError;
+use compile::CompileError;
 
 use std::io;
 
 #[derive(Debug)]
 pub enum Error {
     ParseError(ParseError),
+    CompileError(CompileError),
     IoError(io::Error),
-    MirError(MirError),
 }
 
 impl From<ParseError> for Error {
@@ -16,14 +16,14 @@ impl From<ParseError> for Error {
     }
 }
 
-impl From<io::Error> for Error {
-    fn from(err: io::Error) -> Error {
-        Error::IoError(err)
+impl From<CompileError> for Error {
+    fn from(err: CompileError) -> Error {
+        Error::CompileError(err)
     }
 }
 
-impl From<MirError> for Error {
-    fn from(err: MirError) -> Error {
-        Error::MirError(err)
+impl From<io::Error> for Error {
+    fn from(err: io::Error) -> Error {
+        Error::IoError(err)
     }
 }
