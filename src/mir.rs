@@ -18,6 +18,9 @@ pub struct BasicBlock {
 impl fmt::Display for BasicBlock {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(f, "(do")?;
+        if let Some(var) = self.phi {
+            writeln!(f, "    (set! {} (phi))", var)?;
+        }
         for instruction in &self.instructions {
             writeln!(f, "    {}", instruction)?;
         }
