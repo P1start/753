@@ -214,6 +214,19 @@ impl Builder {
             Value(LLVMBuildBr(self.0, to.0))
         }
     }
+
+    pub fn build_phi(&mut self, ty: Type, dest_name: &str) -> Value {
+        let c_name = CString::new(dest_name).unwrap();
+        unsafe {
+            Value(LLVMBuildPhi(self.0, ty.0, c_name.as_ptr()))
+        }
+    }
+
+    pub fn build_switch(&mut self, val: Value, default: BasicBlock, num_cases: u32) -> Value {
+        unsafe {
+            Value(LLVMBuildSwitch(self.0, val.0, default.0, num_cases))
+        }
+    }
 }
 
 impl Drop for Builder {
@@ -251,6 +264,16 @@ impl Value {
         LLVMGetParams(self.0, v_ref);
         v.set_len(param_count);
         v
+    }
+
+    pub unsafe fn phi_add_incoming(&mut self, mut value: Value, mut bb: BasicBlock) {
+        let llvm_value: *mut LLVMValueRef = mem::transmute(&mut value);
+        let llvm_bb: *mut LLVMBasicBlockRef = mem::transmute(&mut bb);
+        LLVMAddIncoming(self.0, llvm_value, llvm_bb, 1)
+    }
+
+    pub unsafe fn switch_add_case(&mut self, on: Value, dest: BasicBlock) {
+        LLVMAddCase(self.0, on.0, dest.0)
     }
 }
 

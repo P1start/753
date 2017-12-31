@@ -10,6 +10,7 @@ pub struct VariableInfo {
 
 #[derive(Debug, Clone)]
 pub struct BasicBlock {
+    pub phi: Option<VarId>,
     pub instructions: Vec<Instruction>,
     pub terminator: Terminator,
 }
@@ -86,17 +87,20 @@ impl fmt::Display for Value {
 
 #[derive(Debug, Clone)]
 pub enum Terminator {
-    /// `jump bb(.0)`
-    Jump(usize),
-    /// `return var(.0)`
+    /// `(jump bb(.0) var(.1))`
+    Jump(usize, VarId),
+    /// `(return var(.0))`
     Return(VarId),
+    /// `(cond var(.0) bb(.1) bb(.2))`
+    Cond(VarId, usize, usize)
 }
 
 impl fmt::Display for Terminator {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            Terminator::Jump(i) => write!(f, "(jump bb{})", i),
+            Terminator::Jump(i, v) => write!(f, "(jump bb{} var{})", i, v.0),
             Terminator::Return(i) => write!(f, "(return var{})", i.0),
+            Terminator::Cond(v, i, j) => write!(f, "(cond var{} bb{} bb{})", v.0, i, j),
         }
     }
 }

@@ -10,6 +10,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::collections::hash_map::DefaultHasher;
 use std::fmt;
 use std::hash::{Hash, Hasher};
+use std::mem;
 
 #[derive(Debug)]
 pub enum CompileError {
@@ -64,12 +65,21 @@ impl Codegen {
         }
     }
 
+    fn make_name(&mut self, dest: VarId) -> String {
+        if self.stack_vars[dest.0 as usize].is_some() {
+            self.tmp_vars += 1;
+            format!("llvmtmp{}", self.tmp_vars - 1)
+        } else {
+            format!("tmp{}", dest.0)
+        }
+    }
 }
 
 #[derive(Debug)]
 pub struct MirBuilder {
     pub bbs: Vec<BasicBlock>,
     pub name: String,
+    bb_idx: usize,
 
     next_var_id: u32,
     pub variable_info: Vec<VariableInfo>,
@@ -98,15 +108,16 @@ impl fmt::Display for MirBuilder {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Task {
-    /// Write an instruction to the end of a `BasicBlock`.
-    WriteInstruction(usize, Instruction),
-    /// Compile an expression at the end of a `BasicBlock` and assign its result to a variable.
-    CompileExpr(usize, VarId, Expr),
+    /// Write an instruction to the end of the current `BasicBlock`.
+    WriteInstruction(Instruction),
+    /// Compile an expression at the end of the current `BasicBlock` and assign its result to a variable.
+    CompileExpr(VarId, Expr),
     DefineLocal(VarId, String),
     RemoveLocal(String),
-    WaitOnValue(usize, VarId),
-    WaitOnValueWithMirBuilderIdx(usize, VarId, usize),
+    WaitOnValue(VarId),
+    WaitOnValueWithMirBuilderIdx(VarId, usize),
     WaitOnSymbol,
+    SwitchToBasicBlock(usize),
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -229,9 +240,6 @@ impl<'src> Compiler<'src> {
     fn run_function(&mut self, mir_builder_idx: usize) -> i64 {
         let module = self.get_module_for_mir(mir_builder_idx);
         self.ee.add_module(module);
-        for (i, module) in self.modules.iter().enumerate() {
-            println!("=== MODULE {} ===\n{}\n=== END MODULE {0} ===", i, module);
-        }
         let res = {
             let name = &self.mir_builders[mir_builder_idx].name;
             // FIXME(safety): we assume the function has the appropriate signature.
@@ -243,7 +251,9 @@ impl<'src> Compiler<'src> {
     }
 
     pub fn run(&mut self) -> i64 {
-        println!("=== MODULE ===\n{}\n=== END MODULE ===", self.module);
+        for (i, module) in self.modules.iter().enumerate() {
+            println!("=== MODULE {} ===\n{}\n=== END MODULE {0} ===", i, module);
+        }
         // FIXME(copypaste): from Compiler::run_function
         let func: extern "C" fn() -> i64 = unsafe { self.ee.get_function("main") }.unwrap();
         let ret = func();
@@ -255,7 +265,7 @@ impl<'src> Compiler<'src> {
             // We have to do a lot of ugly things in this function to get around rust-lang/rust#6393.
             enum Continue {
                 CreateTemporaryFunction(Expr),
-                TryToEvaluateFunction(usize, VarId, usize),
+                TryToEvaluateFunction(VarId, usize),
             }
             let which;
             {
@@ -264,13 +274,13 @@ impl<'src> Compiler<'src> {
                 let next = mir_builder.next()?;
 
                 match next {
-                    CompileExitStatus::WaitingOnSymbol { name, bb_idx, var } => {
+                    CompileExitStatus::WaitingOnSymbol { name, var } => {
                         if let Some(&global_id) = self.global_ids.get(&name) {
                             // Remove Task::WaitOnSymbol
                             debug_assert_eq!(mir_builder.tasks.pop(), Some(Task::WaitOnSymbol));
 
                             let instruction = Instruction::Global(var, global_id);
-                            mir_builder.tasks.push(Task::WriteInstruction(bb_idx, instruction));
+                            mir_builder.tasks.push(Task::WriteInstruction(instruction));
                             mir_builder.references.insert(global_id);
                         } else {
                             // Add the name as a dependency
@@ -291,15 +301,15 @@ impl<'src> Compiler<'src> {
                     CompileExitStatus::WaitingOnValue { expr } => {
                         let old_task = mir_builder.tasks.pop();
                         match old_task {
-                            Some(Task::WaitOnValue(bb_idx, var)) => {
-                                mir_builder.tasks.push(Task::WaitOnValueWithMirBuilderIdx(bb_idx, var, mir_builder_len));
+                            Some(Task::WaitOnValue(var)) => {
+                                mir_builder.tasks.push(Task::WaitOnValueWithMirBuilderIdx(var, mir_builder_len));
                             },
                             _ => panic!(),
                         }
                         which = Continue::CreateTemporaryFunction(expr);
                     },
-                    CompileExitStatus::StillWaitingOnValue { mir_builder_idx: mbi2, bb_idx, var } => {
-                        which = Continue::TryToEvaluateFunction(bb_idx, var, mbi2);
+                    CompileExitStatus::StillWaitingOnValue { mir_builder_idx: mbi2, var } => {
+                        which = Continue::TryToEvaluateFunction(var, mbi2);
                     },
                 }
             }
@@ -314,7 +324,7 @@ impl<'src> Compiler<'src> {
                     self.build_queue.push_back(mir_builder_idx);
                     break
                 },
-                Continue::TryToEvaluateFunction(bb_idx, var, mbi2) => {
+                Continue::TryToEvaluateFunction(var, mbi2) => {
                     if self.function_is_ready_to_run(mbi2) {
                         let result = self.run_function(mbi2);
                         let mir_builder = &mut self.mir_builders[mir_builder_idx];
@@ -323,7 +333,7 @@ impl<'src> Compiler<'src> {
                             _ => panic!(),
                         }
                         // TODO: actually evaluate thing
-                        mir_builder.tasks.push(Task::WriteInstruction(bb_idx, Instruction::Constant(var, mir::Value::Integer(result))));
+                        mir_builder.tasks.push(Task::WriteInstruction(Instruction::Constant(var, mir::Value::Integer(result))));
                         continue
                     } else {
                         self.build_queue.push_back(mir_builder_idx);
@@ -334,6 +344,7 @@ impl<'src> Compiler<'src> {
         }
 
         if self.mir_builders[mir_builder_idx].tasks.len() == 0 {
+            println!("*** About to codegen this MIR:\n{}", self.mir_builders[mir_builder_idx]);
             self.generate_code_for_funtion(mir_builder_idx);
         }
 
@@ -375,9 +386,39 @@ impl<'src> Compiler<'src> {
             }
         }
 
-        for (bb_idx, bb) in mir.bbs.iter().enumerate() {
+        let mut bb_queue: VecDeque<_> = mir.bbs.iter().enumerate().collect();
+        let mut visited = vec![false; mir.bbs.len()];
+        while let Some((bb_idx, bb)) = bb_queue.pop_front() {
             let llvm_bb = codegen.bbs[bb_idx];
             codegen.builder.position_at_end(llvm_bb);
+
+            if let Some(dest) = bb.phi {
+                let predecessors_visited = mir.bbs.iter().enumerate().all(|(i, x)| match x.terminator {
+                    Terminator::Jump(bb_idx2, _) if bb_idx2 == bb_idx => visited[i],
+                    _ => true,
+                });
+                if !predecessors_visited {
+                    bb_queue.push_back((bb_idx, bb));
+                    continue
+                }
+
+                let name = codegen.make_name(dest);
+                let mut phi = codegen.builder.build_phi(self.context.type_i64(), &name);
+
+                let mut predecessors = mir.bbs.iter().enumerate().filter_map(|(i, x)| match x.terminator {
+                    Terminator::Jump(bb_idx2, var) if bb_idx2 == bb_idx => Some((i, var)),
+                    _ => None,
+                });
+                for (bb, var) in predecessors {
+                    let llvm_bb = codegen.bbs[bb];
+                    let val = codegen.translate_var(var);
+                    unsafe {
+                        phi.phi_add_incoming(val, llvm_bb);
+                    }
+                }
+
+                codegen.vars[dest.0 as usize] = Some(phi);
+            }
 
             for instruction in &bb.instructions {
                 codegen.tmp_vars += 1; // FIXME is this necessary?
@@ -400,17 +441,12 @@ impl<'src> Compiler<'src> {
                         }
                         let func_val = codegen.translate_var(func);
         
-                        let name = if codegen.stack_vars[dest.0 as usize].is_some() {
-                            codegen.tmp_vars += 1;
-                            format!("llvmtmp{}", codegen.tmp_vars - 1)
-                        } else {
-                            format!("tmp{}", dest)
-                        };
+                        let name = codegen.make_name(dest);
                         let call = codegen.builder.build_call(func_val, &mut arg_vals, &name);
                         (dest, call)
                     },
                 };
-        
+
                 if let Some(var) = codegen.stack_vars[dest.0 as usize] {
                     codegen.builder.build_store(value, var);
                 } else {
@@ -419,14 +455,24 @@ impl<'src> Compiler<'src> {
             }
 
             match bb.terminator {
-                Terminator::Jump(to) => {
+                Terminator::Jump(to, _) => {
                     codegen.builder.build_br(codegen.bbs[to]);
                 },
                 Terminator::Return(ref var) => {
                     let ret = codegen.translate_var(*var);
                     codegen.builder.build_ret(ret);
                 },
+                Terminator::Cond(ref var, then_bb, else_bb) => {
+                    let const_zero = self.context.const_i64(0);
+                    let cond_val = codegen.translate_var(*var);
+                    let mut switch = codegen.builder.build_switch(cond_val, codegen.bbs[then_bb], 1);
+                    unsafe {
+                        switch.switch_add_case(const_zero, codegen.bbs[else_bb]);
+                    }
+                },
             }
+
+            visited[bb_idx] = true;
         }
     }
 
@@ -470,7 +516,6 @@ impl<'src> Compiler<'src> {
 enum CompileExitStatus {
     WaitingOnSymbol {
         name: String,
-        bb_idx: usize,
         var: VarId,
     },
     WaitingOnValue {
@@ -478,7 +523,6 @@ enum CompileExitStatus {
     },
     StillWaitingOnValue {
         mir_builder_idx: usize,
-        bb_idx: usize,
         var: VarId,
     },
     NothingToDo,
@@ -489,6 +533,7 @@ impl MirBuilder {
         let var_id = VarId(0);
 
         let bb = BasicBlock {
+            phi: None,
             instructions: vec![],
             terminator: Terminator::Return(var_id),
         };
@@ -496,10 +541,11 @@ impl MirBuilder {
         MirBuilder {
             bbs: vec![bb],
             name,
+            bb_idx: 0,
             next_var_id: 1,
             variable_info: vec![VariableInfo { mutable: false }],
             locals: HashMap::new(),
-            tasks: vec![Task::CompileExpr(0, var_id, body)],
+            tasks: vec![Task::CompileExpr(var_id, body)],
             references: HashSet::new(),
             module_idx: !0,
         }
@@ -515,16 +561,17 @@ impl MirBuilder {
     fn next(&mut self) -> Result<CompileExitStatus, CompileError> {
         let task = self.tasks.pop().unwrap();
         match task {
-            Task::CompileExpr(bb_idx, var, e) => match e.kind {
+            Task::CompileExpr(var, e) => match e.kind {
                 ExprKind::Integer(i) => {
                     let new_instruction = Instruction::Constant(var, mir::Value::Integer(i));
-                    let new_task = Task::WriteInstruction(bb_idx, new_instruction);
+                    let new_task = Task::WriteInstruction(new_instruction);
                     self.tasks.push(new_task);
                 },
                 ExprKind::List(mut exprs) => {
                     let kind = match exprs.get(0) {
                         Some(&Expr { kind: ExprKind::Ident(ref s), .. }) if s == "let" => 1,
                         Some(&Expr { kind: ExprKind::Ident(ref s), .. }) if s == "eval" => 2,
+                        Some(&Expr { kind: ExprKind::Ident(ref s), .. }) if s == "if" => 3,
                         _ => 0,
                     };
                     if kind == 1 { // let
@@ -546,9 +593,9 @@ impl MirBuilder {
                                 
                                 let new_var_id = self.new_var_id(true);
                                 self.tasks.push(Task::RemoveLocal(name.clone()));
-                                self.tasks.push(Task::CompileExpr(bb_idx, var, rest));
+                                self.tasks.push(Task::CompileExpr(var, rest));
                                 self.tasks.push(Task::DefineLocal(new_var_id, name));
-                                self.tasks.push(Task::CompileExpr(bb_idx, new_var_id, value));
+                                self.tasks.push(Task::CompileExpr(new_var_id, value));
                             },
                             _ => return Err(CompileError::ExpectedList(assign.span)),
                         }
@@ -557,10 +604,48 @@ impl MirBuilder {
                             return Err(CompileError::IncorrectNumberOfArguments(e.span, 2))
                         }
                         let inner = exprs.pop().unwrap();
-                        self.tasks.push(Task::WaitOnValue(bb_idx, var));
+                        self.tasks.push(Task::WaitOnValue(var));
                         return Ok(CompileExitStatus::WaitingOnValue {
                             expr: inner,
                         })
+                    } else if kind == 3 { // if
+                        if exprs.len() != 4 {
+                            return Err(CompileError::IncorrectNumberOfArguments(e.span, 4))
+                        }
+                        let else_expr = exprs.pop().unwrap();
+                        let then_expr = exprs.pop().unwrap();
+                        let cond_expr = exprs.pop().unwrap();
+
+                        let cond_var = self.new_var_id(false); 
+                        let then_var = self.new_var_id(false); 
+                        let else_var = self.new_var_id(false); 
+
+                        let (then_bb_idx, else_bb_idx, phi_bb_idx) = (self.bbs.len(), self.bbs.len() + 1, self.bbs.len() + 2);
+                        let then_bb = BasicBlock {
+                            phi: None,
+                            instructions: vec![],
+                            terminator: Terminator::Jump(phi_bb_idx, then_var),
+                        };
+                        let else_bb = BasicBlock {
+                            phi: None,
+                            instructions: vec![],
+                            terminator: Terminator::Jump(phi_bb_idx, else_var),
+                        };
+                        let phi_bb = BasicBlock {
+                            phi: Some(var),
+                            instructions: vec![],
+                            terminator: mem::replace(&mut self.bbs[self.bb_idx].terminator, Terminator::Cond(cond_var, then_bb_idx, else_bb_idx)),
+                        };
+                        self.bbs.push(then_bb);
+                        self.bbs.push(else_bb);
+                        self.bbs.push(phi_bb);
+
+                        self.tasks.push(Task::SwitchToBasicBlock(phi_bb_idx));
+                        self.tasks.push(Task::CompileExpr(else_var, else_expr));
+                        self.tasks.push(Task::SwitchToBasicBlock(else_bb_idx));
+                        self.tasks.push(Task::CompileExpr(then_var, then_expr));
+                        self.tasks.push(Task::SwitchToBasicBlock(then_bb_idx));
+                        self.tasks.push(Task::CompileExpr(cond_var, cond_expr));
                     } else {
                         if exprs.len() == 0 {
                             return Err(CompileError::IncorrectNumberOfArgumentsAtLeast(e.span, 1))
@@ -573,27 +658,26 @@ impl MirBuilder {
                         }
                         // FIXME: unnecessary clone
                         let call_instruction = Instruction::Call(var, func_var, arg_vars.clone());
-                        self.tasks.push(Task::WriteInstruction(bb_idx, call_instruction));
-                        self.tasks.push(Task::CompileExpr(bb_idx, func_var, func));
+                        self.tasks.push(Task::WriteInstruction(call_instruction));
+                        self.tasks.push(Task::CompileExpr(func_var, func));
                         for &arg_var in arg_vars.iter().rev() {
-                            self.tasks.push(Task::CompileExpr(bb_idx, arg_var, exprs.pop().unwrap()));
+                            self.tasks.push(Task::CompileExpr(arg_var, exprs.pop().unwrap()));
                         }
                     }
                 },
                 ExprKind::Ident(s) => {
                     if let Some(&this_var) = self.locals.get(&s).and_then(|x| x.last()) {
-                        self.tasks.push(Task::WriteInstruction(bb_idx, Instruction::Variable(var, this_var)));
+                        self.tasks.push(Task::WriteInstruction(Instruction::Variable(var, this_var)));
                     } else {
                         self.tasks.push(Task::WaitOnSymbol);
                         return Ok(CompileExitStatus::WaitingOnSymbol {
                             name: s,
-                            bb_idx,
                             var,
                         })
                     }
                 },
             },
-            Task::WriteInstruction(bb_idx, instruction) => self.bbs[bb_idx].instructions.push(instruction),
+            Task::WriteInstruction(instruction) => self.bbs[self.bb_idx].instructions.push(instruction),
             Task::DefineLocal(new_var_id, name) => {
                 if !self.locals.contains_key(&name) {
                     self.locals.insert(name, vec![new_var_id]);
@@ -605,17 +689,19 @@ impl MirBuilder {
                 self.locals.get_mut(&name).unwrap().pop();
             },
             Task::WaitOnValue(..) => panic!(),
-            Task::WaitOnValueWithMirBuilderIdx(bb_idx, var, mir_builder_idx) => {
+            Task::WaitOnValueWithMirBuilderIdx(var, mir_builder_idx) => {
                 self.tasks.push(task.clone());
                 return Ok(CompileExitStatus::StillWaitingOnValue {
                     mir_builder_idx,
-                    bb_idx,
                     var,
                 })
             },
             Task::WaitOnSymbol => {
                 self.tasks.push(Task::WaitOnSymbol);
                 return Ok(CompileExitStatus::NothingToDo)
+            },
+            Task::SwitchToBasicBlock(new_bb_idx) => {
+                self.bb_idx = new_bb_idx;
             },
         }
 
@@ -672,5 +758,15 @@ mod test {
         compiler.compile().unwrap();
 
         assert_eq!(compiler.run(), 42)
-    }*/
+    }
+
+    #[test]
+    fn test_if() {
+        let src = "(define (main) (if (if 1 0 1) (if 0 4 2) (if 2 5 3)))";
+        let mut compiler = Compiler::from_str(src);
+        compiler.compile().unwrap();
+
+        assert_eq!(compiler.run(), 5)
+    }
+    */
 }

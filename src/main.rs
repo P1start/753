@@ -16,9 +16,6 @@ fn main() {
     io::stdin().read_to_string(&mut source).unwrap();
     let mut compiler = Compiler::from_str(&source);
     compiler.compile().unwrap();
-    for mir_builder in &compiler.mir_builders {
-        println!("{}", mir_builder);
-    }
 
     println!("{}", compiler.run());
 }
